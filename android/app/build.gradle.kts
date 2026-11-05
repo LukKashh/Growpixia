@@ -1,19 +1,8 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-
-// Read the public Supabase client configuration from android/local.properties.
-// Keep this file local; do not commit it to source control.
-val localProps = Properties().apply {
-    val localPropsFile = rootProject.file("local.properties")
-    if (localPropsFile.exists()) localPropsFile.inputStream().use { load(it) }
-}
-val supabaseUrl = localProps.getProperty("SUPABASE_URL", "https://ydjynediqdmnosddwusw.supabase.co")
-val supabasePublishableKey = localProps.getProperty("SUPABASE_PUBLISHABLE_KEY", "")
 
 android {
     namespace = "com.growpixel.game"
@@ -30,8 +19,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
-        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabasePublishableKey\"")
     }
 
     buildTypes {
@@ -52,7 +39,6 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 }
 

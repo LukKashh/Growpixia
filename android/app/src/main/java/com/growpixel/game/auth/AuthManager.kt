@@ -33,10 +33,9 @@ class AuthManager(private val context: Context) {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    // Public client configuration is generated from android/local.properties.
-    // Never put the Supabase service-role key or AUTH_HMAC_SECRET in this app.
-    var baseUrl: String = com.growpixel.game.BuildConfig.SUPABASE_URL
-    var publishableKey: String = com.growpixel.game.BuildConfig.SUPABASE_PUBLISHABLE_KEY
+    // Configurable endpoint: Supabase URL or local dev bridge (10.0.2.2 for Android emulator)
+    var baseUrl: String = "http://10.0.2.2:3000"
+    var publishableKey: String = ""
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

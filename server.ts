@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,7 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 const DATA_DIR = path.join(__dirname, 'data');
 const WORLDS_DIR = path.join(DATA_DIR, 'worlds');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
+const AUCTIONS_FILE = path.join(DATA_DIR, 'auctions.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(WORLDS_DIR)) fs.mkdirSync(WORLDS_DIR, { recursive: true });
@@ -38,6 +40,100 @@ try {
   }
 } catch (e) {
   console.warn('Firebase server init warning:', e);
+}
+
+// --- Supabase Authoritative Token Verification Setup ---
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+
+const isRemoteSupabaseConfigured = Boolean(
+  SUPABASE_URL &&
+  !SUPABASE_URL.includes('placeholder') &&
+  !SUPABASE_URL.includes('example.supabase.co') &&
+  (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY)
+);
+
+const supabaseAdmin = isRemoteSupabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY, {
+      auth: { persistSession: false }
+    })
+  : null;
+
+interface VerifiedIdentity {
+  userId: string;
+  username: string;
+}
+
+async function verifyPlayerToken(token: string): Promise<VerifiedIdentity | null> {
+  if (!token || typeof token !== 'string') return null;
+
+  const cleanToken = token.trim();
+  if (!cleanToken) return null;
+
+  // 1. Verify via official Supabase Auth API if remote Supabase is configured
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin.auth.getUser(cleanToken);
+      if (!error && data?.user) {
+        const u = data.user;
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('username')
+          .eq('id', u.id)
+          .maybeSingle();
+
+        const username = profile?.username || u.user_metadata?.username || `User_${u.id.substring(0, 8)}`;
+        return {
+          userId: u.id,
+          username
+        };
+      }
+    } catch (err) {
+      console.warn('Supabase auth.getUser token verification error:', err);
+    }
+  }
+
+  // 2. Verify against local HMAC secret (for local Edge Function authoritative handlers)
+  try {
+    const secret = process.env.AUTH_HMAC_SECRET;
+    if (secret) {
+      const parts = cleanToken.split('.');
+      if (parts.length === 3) {
+        const payloadB64 = parts[1];
+        const sigB64 = parts[2];
+        const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+
+        if (crypto.timingSafeEqual(Buffer.from(sigB64), Buffer.from(expectedSig))) {
+          const payloadJson = Buffer.from(payloadB64, 'base64url').toString('utf-8');
+          const payload = JSON.parse(payloadJson);
+
+          // Check expiration
+          if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+            console.warn('Token verification failed: Session token has expired.');
+            return null;
+          }
+
+          const userId = payload.sub;
+          if (userId) {
+            const acc = Object.values(accountsCache).find(
+              (a) => a.id === userId || `user_${deriveHmacIdentifier(a.username)}@growpixel.internal` === payload.email
+            );
+            if (acc) {
+              return {
+                userId: acc.id,
+                username: acc.username
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Local HMAC token verification exception:', e);
+  }
+
+  return null;
 }
 
 // --- Authoritative Account Storage ---
@@ -79,6 +175,356 @@ function saveAccounts(accounts: Record<string, Account>) {
 
 // In-memory accounts cache
 const accountsCache: Record<string, Account> = loadAccounts();
+
+// --- Authoritative Auction Store & Data Model ---
+export interface AuctionItem {
+  id: string;
+  sellerId: string;
+  sellerUsername: string;
+  itemId: string;
+  itemCount: number;
+  startingBid: number;
+  currentBid: number;
+  buyNowPrice?: number | null;
+  highestBidderId?: string | null;
+  highestBidderUsername?: string | null;
+  createdAt: number;
+  expiresAt: number;
+  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED_NO_BIDS';
+  cancelledAt?: number | null;
+  cancelledBy?: string | null;
+  cancellationReason?: string | null;
+}
+
+function loadAuctions(): Record<string, AuctionItem> {
+  try {
+    if (fs.existsSync(AUCTIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(AUCTIONS_FILE, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Error loading auctions:', err);
+  }
+  return {};
+}
+
+function saveAuctions(auctions: Record<string, AuctionItem>) {
+  try {
+    fs.writeFileSync(AUCTIONS_FILE, JSON.stringify(auctions, null, 2), 'utf-8');
+    if (firestoreDb) {
+      for (const [key, auc] of Object.entries(auctions)) {
+        setDoc(doc(firestoreDb, 'auctions', key), auc).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.error('Error saving auctions:', err);
+  }
+}
+
+const auctionsCache: Record<string, AuctionItem> = loadAuctions();
+
+function broadcastToAllPlayers(payloadStr: string) {
+  for (const room of activeRooms.values()) {
+    for (const p of room.players.values()) {
+      if (p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(payloadStr);
+      }
+    }
+  }
+}
+
+function notifyUserWS(username: string, payloadObj: any) {
+  const lower = username.toLowerCase();
+  const payloadStr = JSON.stringify(payloadObj);
+  for (const room of activeRooms.values()) {
+    for (const p of room.players.values()) {
+      if (p.username.toLowerCase() === lower && p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(payloadStr);
+      }
+    }
+  }
+}
+
+function createAuctionHandler(sellerUsername: string, itemId: string, itemCount: number, startingBid: number, buyNowPrice?: number | null, durationMinutes: number = 15) {
+  const cleanSeller = sellerUsername.trim().toLowerCase();
+  const acc = accountsCache[cleanSeller];
+  if (!acc) throw new Error('User not found.');
+
+  const count = Math.max(1, Math.floor(Number(itemCount) || 1));
+  const startBid = Math.max(1, Math.floor(Number(startingBid) || 1));
+  const buyNow = buyNowPrice ? Math.max(startBid + 1, Math.floor(Number(buyNowPrice))) : null;
+  const durMs = Math.max(1, Math.min(1440, Math.floor(Number(durationMinutes) || 15))) * 60 * 1000;
+
+  if ((acc.inventory[itemId] || 0) < count) {
+    throw new Error(`Insufficient inventory: You do not have x${count} ${itemId} to list for auction.`);
+  }
+
+  // Deduct items from seller's inventory (escrowed into auction)
+  acc.inventory[itemId] = (acc.inventory[itemId] || 0) - count;
+  saveAccounts(accountsCache);
+
+  const auctionId = 'auc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const now = Date.now();
+  const auction: AuctionItem = {
+    id: auctionId,
+    sellerId: acc.id,
+    sellerUsername: acc.username,
+    itemId,
+    itemCount: count,
+    startingBid: startBid,
+    currentBid: startBid,
+    buyNowPrice: buyNow,
+    highestBidderId: null,
+    highestBidderUsername: null,
+    createdAt: now,
+    expiresAt: now + durMs,
+    status: 'ACTIVE'
+  };
+
+  auctionsCache[auctionId] = auction;
+  saveAuctions(auctionsCache);
+
+  notifyUserWS(acc.username, {
+    type: 'inventory:sync',
+    inventory: acc.inventory,
+    gems: acc.gems
+  });
+
+  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
+  broadcastToAllPlayers(listPayload);
+
+  return auction;
+}
+
+function placeBidHandler(bidderUsername: string, auctionId: string, bidAmount: number) {
+  const cleanBidder = bidderUsername.trim().toLowerCase();
+  const bidderAcc = accountsCache[cleanBidder];
+  if (!bidderAcc) throw new Error('User not found.');
+
+  const auction = auctionsCache[auctionId];
+  if (!auction) throw new Error('Auction not found.');
+  if (auction.status !== 'ACTIVE' || Date.now() >= auction.expiresAt) {
+    throw new Error('Auction is no longer active.');
+  }
+
+  if (auction.sellerUsername.toLowerCase() === cleanBidder) {
+    throw new Error('You cannot bid on your own auction.');
+  }
+
+  const amount = Math.floor(Number(bidAmount) || 0);
+
+  const minRequiredBid = auction.highestBidderUsername
+    ? auction.currentBid + Math.max(1, Math.floor(auction.currentBid * 0.05))
+    : auction.startingBid;
+
+  if (amount < minRequiredBid) {
+    throw new Error(`Bid amount must be at least ${minRequiredBid} gems.`);
+  }
+
+  if (bidderAcc.gems < amount) {
+    throw new Error(`Insufficient gems balance. You need ${amount} gems to place this bid.`);
+  }
+
+  // 1. Refund previous highest bidder if one exists
+  if (auction.highestBidderUsername && auction.currentBid > 0) {
+    const prevBidderClean = auction.highestBidderUsername.toLowerCase();
+    const prevBidderAcc = accountsCache[prevBidderClean];
+    if (prevBidderAcc) {
+      prevBidderAcc.gems += auction.currentBid;
+      saveAccounts(accountsCache);
+      notifyUserWS(prevBidderAcc.username, {
+        type: 'inventory:sync',
+        gems: prevBidderAcc.gems,
+        inventory: prevBidderAcc.inventory
+      });
+      notifyUserWS(prevBidderAcc.username, {
+        type: 'notify',
+        text: `💰 Outbid on ${auction.itemId}! Refunded ${auction.currentBid} gems.`
+      });
+    }
+  }
+
+  // 2. Escrow gems from new bidder
+  bidderAcc.gems -= amount;
+  auction.currentBid = amount;
+  auction.highestBidderId = bidderAcc.id;
+  auction.highestBidderUsername = bidderAcc.username;
+
+  // Check if buyNowPrice was met or exceeded
+  if (auction.buyNowPrice && amount >= auction.buyNowPrice) {
+    auction.status = 'COMPLETED';
+    bidderAcc.inventory[auction.itemId] = (bidderAcc.inventory[auction.itemId] || 0) + auction.itemCount;
+
+    const sellerClean = auction.sellerUsername.toLowerCase();
+    const sellerAcc = accountsCache[sellerClean];
+    if (sellerAcc) {
+      sellerAcc.gems += amount;
+      notifyUserWS(sellerAcc.username, {
+        type: 'inventory:sync',
+        gems: sellerAcc.gems,
+        inventory: sellerAcc.inventory
+      });
+      notifyUserWS(sellerAcc.username, {
+        type: 'notify',
+        text: `🎉 Your auction for ${auction.itemId} x${auction.itemCount} was bought out by ${bidderAcc.username} for ${amount} gems!`
+      });
+    }
+  }
+
+  saveAuctions(auctionsCache);
+  saveAccounts(accountsCache);
+
+  notifyUserWS(bidderAcc.username, {
+    type: 'inventory:sync',
+    gems: bidderAcc.gems,
+    inventory: bidderAcc.inventory
+  });
+
+  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
+  broadcastToAllPlayers(listPayload);
+
+  return auction;
+}
+
+function cancelAuctionHandler(cancellerUsername: string, auctionId: string) {
+  const cleanCanceller = cancellerUsername.trim().toLowerCase();
+  const auction = auctionsCache[auctionId];
+  if (!auction) throw new Error('Auction not found.');
+
+  if (auction.status !== 'ACTIVE') {
+    throw new Error(`Cannot cancel auction: Current status is '${auction.status}'.`);
+  }
+
+  const isSeller = auction.sellerUsername.toLowerCase() === cleanCanceller;
+  if (!isSeller) {
+    throw new Error('Unauthorized: Only the seller can cancel this auction.');
+  }
+
+  // 1. Mark auction status as CANCELLED
+  auction.status = 'CANCELLED';
+  auction.cancelledAt = Date.now();
+  auction.cancelledBy = auction.sellerUsername;
+  auction.cancellationReason = 'Cancelled by seller before finish.';
+
+  // 2. Refund the highest bidder (if any bid was active)
+  if (auction.highestBidderUsername && auction.currentBid > 0) {
+    const bidderClean = auction.highestBidderUsername.toLowerCase();
+    const bidderAcc = accountsCache[bidderClean];
+    if (bidderAcc) {
+      bidderAcc.gems += auction.currentBid;
+      notifyUserWS(bidderAcc.username, {
+        type: 'inventory:sync',
+        gems: bidderAcc.gems,
+        inventory: bidderAcc.inventory
+      });
+      notifyUserWS(bidderAcc.username, {
+        type: 'notify',
+        text: `🔒 Auction for ${auction.itemId} x${auction.itemCount} was cancelled by the seller. Your bid of ${auction.currentBid} gems was fully refunded.`
+      });
+    }
+  }
+
+  // 3. Return seller's escrowed items to inventory
+  const sellerAcc = accountsCache[cleanCanceller];
+  if (sellerAcc) {
+    sellerAcc.inventory[auction.itemId] = (sellerAcc.inventory[auction.itemId] || 0) + auction.itemCount;
+    notifyUserWS(sellerAcc.username, {
+      type: 'inventory:sync',
+      inventory: sellerAcc.inventory,
+      gems: sellerAcc.gems
+    });
+    notifyUserWS(sellerAcc.username, {
+      type: 'notify',
+      text: `📦 Your auction for ${auction.itemId} x${auction.itemCount} was cancelled. Items returned to your inventory.`
+    });
+  }
+
+  saveAccounts(accountsCache);
+  saveAuctions(auctionsCache);
+
+  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
+  broadcastToAllPlayers(listPayload);
+
+  return auction;
+}
+
+function buyNowAuctionHandler(buyerUsername: string, auctionId: string) {
+  const auction = auctionsCache[auctionId];
+  if (!auction) throw new Error('Auction not found.');
+  if (auction.status !== 'ACTIVE' || Date.now() >= auction.expiresAt) {
+    throw new Error('Auction is no longer active.');
+  }
+  if (!auction.buyNowPrice) {
+    throw new Error('This auction does not have a Buy Now option.');
+  }
+
+  return placeBidHandler(buyerUsername, auctionId, auction.buyNowPrice);
+}
+
+// Background timer to automatically settle or expire active auctions when time expires
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+
+  for (const auc of Object.values(auctionsCache)) {
+    if (auc.status === 'ACTIVE' && now >= auc.expiresAt) {
+      changed = true;
+      if (auc.highestBidderUsername && auc.currentBid > 0) {
+        auc.status = 'COMPLETED';
+        const winnerClean = auc.highestBidderUsername.toLowerCase();
+        const winnerAcc = accountsCache[winnerClean];
+        if (winnerAcc) {
+          winnerAcc.inventory[auc.itemId] = (winnerAcc.inventory[auc.itemId] || 0) + auc.itemCount;
+          notifyUserWS(winnerAcc.username, {
+            type: 'inventory:sync',
+            inventory: winnerAcc.inventory,
+            gems: winnerAcc.gems
+          });
+          notifyUserWS(winnerAcc.username, {
+            type: 'notify',
+            text: `🏆 You won the auction for ${auc.itemId} x${auc.itemCount} for ${auc.currentBid} gems!`
+          });
+        }
+        const sellerClean = auc.sellerUsername.toLowerCase();
+        const sellerAcc = accountsCache[sellerClean];
+        if (sellerAcc) {
+          sellerAcc.gems += auc.currentBid;
+          notifyUserWS(sellerAcc.username, {
+            type: 'inventory:sync',
+            gems: sellerAcc.gems,
+            inventory: sellerAcc.inventory
+          });
+          notifyUserWS(sellerAcc.username, {
+            type: 'notify',
+            text: `💰 Your auction for ${auc.itemId} x${auc.itemCount} sold to ${auc.highestBidderUsername} for ${auc.currentBid} gems!`
+          });
+        }
+      } else {
+        auc.status = 'EXPIRED_NO_BIDS';
+        const sellerClean = auc.sellerUsername.toLowerCase();
+        const sellerAcc = accountsCache[sellerClean];
+        if (sellerAcc) {
+          sellerAcc.inventory[auc.itemId] = (sellerAcc.inventory[auc.itemId] || 0) + auc.itemCount;
+          notifyUserWS(sellerAcc.username, {
+            type: 'inventory:sync',
+            inventory: sellerAcc.inventory,
+            gems: sellerAcc.gems
+          });
+          notifyUserWS(sellerAcc.username, {
+            type: 'notify',
+            text: `⌛ Your auction for ${auc.itemId} x${auc.itemCount} expired with no bids. Item returned.`
+          });
+        }
+      }
+    }
+  }
+
+  if (changed) {
+    saveAccounts(accountsCache);
+    saveAuctions(auctionsCache);
+    const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
+    broadcastToAllPlayers(listPayload);
+  }
+}, 3000);
 
 // Default starting inventory for new players
 function getStarterInventory(): Record<string, number> {
@@ -328,6 +774,51 @@ app.post('/api/account/add-gems', (req: Request, res: Response) => {
   acc.gems += delta;
   saveAccounts(accountsCache);
   res.json({ success: true, gems: acc.gems });
+});
+
+// --- Auction API Endpoints ---
+app.get('/api/auctions', (_req: Request, res: Response) => {
+  res.json({ auctions: Object.values(auctionsCache) });
+});
+
+app.post('/api/auction/create', (req: Request, res: Response) => {
+  try {
+    const { username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes } = req.body;
+    const auction = createAuctionHandler(username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes);
+    res.json({ success: true, auction });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to create auction.' });
+  }
+});
+
+app.post('/api/auction/bid', (req: Request, res: Response) => {
+  try {
+    const { username, auctionId, bidAmount } = req.body;
+    const auction = placeBidHandler(username, auctionId, bidAmount);
+    res.json({ success: true, auction });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to place bid.' });
+  }
+});
+
+app.post('/api/auction/cancel', (req: Request, res: Response) => {
+  try {
+    const { username, auctionId } = req.body;
+    const auction = cancelAuctionHandler(username, auctionId);
+    res.json({ success: true, auction, message: 'Auction successfully cancelled. Bids refunded and item returned to seller.' });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to cancel auction.' });
+  }
+});
+
+app.post('/api/auction/buynow', (req: Request, res: Response) => {
+  try {
+    const { username, auctionId } = req.body;
+    const auction = buyNowAuctionHandler(username, auctionId);
+    res.json({ success: true, auction });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Buy Now purchase failed.' });
+  }
 });
 
 // Check if world exists and get overview
@@ -682,19 +1173,44 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket, req: any) => {
   let currentRoom: WorldRoom | null = null;
   let playerId: string = '';
   let username: string = '';
 
-  ws.on('message', (raw: string) => {
+  const reqUrl = new URL(req?.url || '', `http://${req?.headers?.host || 'localhost'}`);
+  const queryToken = reqUrl.searchParams.get('token') || reqUrl.searchParams.get('access_token');
+
+  ws.on('message', async (raw: string) => {
     try {
       const msg = JSON.parse(raw);
 
       if (msg.type === 'world:join') {
-        const { worldName, user } = msg;
-        username = (user || 'Guest_' + Math.floor(Math.random() * 9000 + 1000)).trim();
-        playerId = 'p_' + Math.random().toString(36).substring(2, 9);
+        const { worldName, token: msgToken } = msg;
+        const accessToken = msgToken || queryToken;
+
+        if (!accessToken) {
+          ws.send(JSON.stringify({
+            type: 'auth:error',
+            error: 'Unauthorized: Missing Supabase access token.'
+          }));
+          ws.close(4001, 'Unauthorized: Missing access token');
+          return;
+        }
+
+        const identity = await verifyPlayerToken(accessToken);
+        if (!identity) {
+          ws.send(JSON.stringify({
+            type: 'auth:error',
+            error: 'Unauthorized: Invalid or expired Supabase access token.'
+          }));
+          ws.close(4001, 'Unauthorized: Invalid access token');
+          return;
+        }
+
+        // Bind verified authoritative identity
+        username = identity.username;
+        playerId = identity.userId;
         currentRoom = getOrCreateRoom(worldName);
 
         // Player initial spawn at ground level in front of the spawn door
@@ -757,7 +1273,8 @@ wss.on('connection', (ws: WebSocket) => {
           trees: currentRoom.trees,
           drops: currentRoom.drops,
           worldOwner: currentRoom.worldOwner,
-          players: otherPlayers
+          players: otherPlayers,
+          auctions: Object.values(auctionsCache)
         }));
         return;
       }
@@ -1114,6 +1631,54 @@ wss.on('connection', (ws: WebSocket) => {
         });
         for (const p of currentRoom.players.values()) {
           if (p.ws.readyState === WebSocket.OPEN) p.ws.send(updateData);
+        }
+        return;
+      }
+
+      if (msg.type === 'auction:list:request') {
+        ws.send(JSON.stringify({
+          type: 'auction:list',
+          auctions: Object.values(auctionsCache)
+        }));
+        return;
+      }
+
+      if (msg.type === 'auction:create') {
+        try {
+          const { itemId, itemCount, startingBid, buyNowPrice, durationMinutes } = msg;
+          createAuctionHandler(username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to create auction' }));
+        }
+        return;
+      }
+
+      if (msg.type === 'auction:bid') {
+        try {
+          const { auctionId, bidAmount } = msg;
+          placeBidHandler(username, auctionId, bidAmount);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to place bid' }));
+        }
+        return;
+      }
+
+      if (msg.type === 'auction:cancel') {
+        try {
+          const { auctionId } = msg;
+          cancelAuctionHandler(username, auctionId);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to cancel auction' }));
+        }
+        return;
+      }
+
+      if (msg.type === 'auction:buynow') {
+        try {
+          const { auctionId } = msg;
+          buyNowAuctionHandler(username, auctionId);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Buy Now purchase failed' }));
         }
         return;
       }

@@ -45,6 +45,26 @@ interface UserProfile {
   username: string;
   gems: number;
   inventory: Record<string, number>;
+  session?: any;
+}
+
+export interface AuctionItem {
+  id: string;
+  sellerId: string;
+  sellerUsername: string;
+  itemId: string;
+  itemCount: number;
+  startingBid: number;
+  currentBid: number;
+  buyNowPrice?: number | null;
+  highestBidderId?: string | null;
+  highestBidderUsername?: string | null;
+  createdAt: number;
+  expiresAt: number;
+  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED_NO_BIDS';
+  cancelledAt?: number | null;
+  cancelledBy?: string | null;
+  cancellationReason?: string | null;
 }
 
 // Block & Item Definitions
@@ -151,6 +171,158 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [lockNewUser, setLockNewUser] = useState('');
+
+  // Auction House State
+  const [isAuctionHouseOpen, setIsAuctionHouseOpen] = useState(false);
+  const [auctionTab, setAuctionTab] = useState<'ACTIVE' | 'CREATE' | 'MY_AUCTIONS'>('ACTIVE');
+  const [auctionsList, setAuctionsList] = useState<AuctionItem[]>([]);
+  const [auctionSearch, setAuctionSearch] = useState('');
+  const [createAuctionItem, setCreateAuctionItem] = useState('');
+  const [createAuctionCount, setCreateAuctionCount] = useState(1);
+  const [createAuctionStartBid, setCreateAuctionStartBid] = useState(10);
+  const [createAuctionBuyNow, setCreateAuctionBuyNow] = useState('');
+  const [createAuctionDuration, setCreateAuctionDuration] = useState(15);
+  const [bidInputMap, setBidInputMap] = useState<Record<string, string>>({});
+  const [cancelConfirmAuction, setCancelConfirmAuction] = useState<AuctionItem | null>(null);
+  const [auctionMessage, setAuctionMessage] = useState({ error: '', success: '' });
+
+  const fetchAuctionsList = async () => {
+    try {
+      const res = await fetch('/api/auctions');
+      const data = await res.json();
+      if (data && data.auctions) setAuctionsList(data.auctions);
+    } catch (e) {}
+  };
+
+  const handleCreateAuctionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuctionMessage({ error: '', success: '' });
+    if (!currentUser) return;
+    if (!createAuctionItem) {
+      setAuctionMessage({ error: 'Please select an item to auction.', success: '' });
+      return;
+    }
+    const available = userInventoryRef.current[createAuctionItem] || 0;
+    if (available < createAuctionCount) {
+      setAuctionMessage({ error: `Insufficient count! You only have x${available} ${defs[createAuctionItem]?.name || createAuctionItem}.`, success: '' });
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auction/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: currentUser.username,
+          itemId: createAuctionItem,
+          itemCount: createAuctionCount,
+          startingBid: createAuctionStartBid,
+          buyNowPrice: createAuctionBuyNow ? Number(createAuctionBuyNow) : null,
+          durationMinutes: createAuctionDuration,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuctionMessage({ error: data.error || 'Failed to create auction.', success: '' });
+        return;
+      }
+
+      setAuctionMessage({ error: '', success: `Successfully listed ${createAuctionCount}x ${defs[createAuctionItem]?.name || createAuctionItem} for auction!` });
+      if (currentUser) {
+        const newInv = { ...currentUser.inventory, [createAuctionItem]: Math.max(0, (currentUser.inventory[createAuctionItem] || 0) - createAuctionCount) };
+        setCurrentUser({ ...currentUser, inventory: newInv });
+      }
+      setCreateAuctionItem('');
+      setCreateAuctionCount(1);
+      setTimeout(() => {
+        setAuctionTab('ACTIVE');
+        fetchAuctionsList();
+      }, 1000);
+    } catch (err: any) {
+      setAuctionMessage({ error: err.message || 'Auction creation error.', success: '' });
+    }
+  };
+
+  const handlePlaceBidSubmit = async (auctionId: string) => {
+    setAuctionMessage({ error: '', success: '' });
+    if (!currentUser) return;
+    const amountStr = bidInputMap[auctionId] || '';
+    const amount = Number(amountStr);
+    if (!amount || amount <= 0) {
+      alert('Please enter a valid bid amount.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auction/bid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: currentUser.username,
+          auctionId,
+          bidAmount: amount,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to place bid.');
+        return;
+      }
+
+      setBidInputMap((prev) => ({ ...prev, [auctionId]: '' }));
+      fetchAuctionsList();
+    } catch (err: any) {
+      alert(err.message || 'Error placing bid.');
+    }
+  };
+
+  const handleBuyNowSubmit = async (auctionId: string) => {
+    if (!currentUser) return;
+    if (!confirm('Are you sure you want to Buy Now at this price?')) return;
+    try {
+      const res = await fetch('/api/auction/buynow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: currentUser.username,
+          auctionId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Buy Now purchase failed.');
+        return;
+      }
+      fetchAuctionsList();
+    } catch (err: any) {
+      alert(err.message || 'Buy Now error.');
+    }
+  };
+
+  const handleCancelAuctionConfirm = async () => {
+    if (!cancelConfirmAuction || !currentUser) return;
+    try {
+      const res = await fetch('/api/auction/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: currentUser.username,
+          auctionId: cancelConfirmAuction.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to cancel auction.');
+        return;
+      }
+
+      setCancelConfirmAuction(null);
+      setAuctionMessage({ error: '', success: 'Auction successfully cancelled! Your items have been returned and active bids refunded.' });
+      fetchAuctionsList();
+    } catch (err: any) {
+      alert(err.message || 'Error cancelling auction.');
+    }
+  };
 
   // Fixed 3-Slot Recent-Item Toolbar State & Active Selected Item
   const [recentSlots, setRecentSlots] = useState<Array<string | null>>([null, null, null]);
@@ -291,6 +463,7 @@ export default function App() {
           username: res.user.username,
           gems: res.user.gems,
           inventory: res.user.inventory || {},
+          session: res.session,
         });
         setRecentSlots([null, null, null]);
         setSelectedItem('fist');
@@ -309,6 +482,7 @@ export default function App() {
           username: res.user.username,
           gems: res.user.gems,
           inventory: res.user.inventory || {},
+          session: res.session,
         });
         setRecentSlots([null, null, null]);
         setSelectedItem('fist');
@@ -887,9 +1061,21 @@ export default function App() {
         punch: makePlayerSprite('punch', '#7ab0db', '#223447'),
       };
 
-      // --- WEBSOCKET CLIENT CONNECTION ---
+      // --- WEBSOCKET CLIENT CONNECTION WITH AUTHORITATIVE TOKEN ---
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      let accessToken = currentUserRef.current?.session?.access_token || '';
+      if (!accessToken) {
+        try {
+          const rawUser = localStorage.getItem('growpixel_mmo_user');
+          if (rawUser) {
+            const u = JSON.parse(rawUser);
+            accessToken = u.session?.access_token || u.access_token || '';
+          }
+        } catch {}
+      }
+
+      const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(accessToken)}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -898,7 +1084,7 @@ export default function App() {
           JSON.stringify({
             type: 'world:join',
             worldName: targetWorld,
-            user: myUsername,
+            token: accessToken,
           })
         );
       };
@@ -906,6 +1092,14 @@ export default function App() {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'auth:error') {
+            showToast(`Auth Error: ${msg.error}`);
+            setAuthError(msg.error || 'Authentication error');
+            setTimeout(() => {
+              setScreen('AUTH');
+            }, 1500);
+            return;
+          }
           if (msg.type === 'init:world') {
             myPlayerId = msg.myId;
             world = msg.tiles;
@@ -915,6 +1109,7 @@ export default function App() {
             currentWorldOwner = msg.worldOwner || null;
             setInGameWorldName(msg.worldName);
             setInGameWorldOwner(msg.worldOwner);
+            if (msg.auctions) setAuctionsList(msg.auctions);
 
             remotePlayers.clear();
             if (msg.players) {
@@ -1013,6 +1208,8 @@ export default function App() {
             currentLocks = msg.locks || [];
             currentWorldOwner = msg.worldOwner || null;
             setInGameWorldOwner(currentWorldOwner);
+          } else if (msg.type === 'auction:list') {
+            if (msg.auctions) setAuctionsList(msg.auctions);
           } else if (msg.type === 'notify') {
             showToast(msg.text);
           }
@@ -2377,6 +2574,12 @@ export default function App() {
                   <span>{currentUser?.gems ?? 0}</span>
                 </div>
                 <button
+                  onClick={() => { setIsAuctionHouseOpen(true); fetchAuctionsList(); }}
+                  className="bg-amber-950 border border-amber-600/80 text-amber-300 font-bold text-xs px-2.5 py-1 rounded hover:bg-amber-900 transition flex items-center gap-1"
+                >
+                  <span>🏷️ Auctions</span>
+                </button>
+                <button
                   onClick={handleLogout}
                   className="text-[10px] text-stone-400 hover:text-stone-200 underline"
                 >
@@ -2509,6 +2712,19 @@ export default function App() {
               <span className="mark gem-mark">◆</span>
               <span className="gem-store-label">GEM STORE</span>
               <span className="gem-total">{currentUser?.gems ?? 0}</span>
+            </button>
+
+            {/* Global Auction House Button in Topbar */}
+            <button
+              type="button"
+              className="action flex items-center gap-1.5 bg-amber-950/80 border border-amber-600/60 text-amber-300 font-bold hover:bg-amber-900/90 text-xs"
+              onClick={() => { setIsAuctionHouseOpen(true); fetchAuctionsList(); }}
+              aria-label="Open Auction House"
+            >
+              <span>🏷️ Auctions</span>
+              <span className="bg-amber-600 text-stone-950 font-black px-1.5 py-0.2 rounded text-[10px]">
+                {auctionsList.filter(a => a.status === 'ACTIVE').length}
+              </span>
             </button>
 
             {/* Online Players Button */}
@@ -2969,6 +3185,449 @@ export default function App() {
               <span className="text-[8px] font-bold">Bag</span>
             </button>
           </div>
+
+          {/* AUCTION HOUSE MODAL */}
+          {isAuctionHouseOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-stone-900 border-2 border-amber-600/80 rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-amber-950 via-stone-900 to-amber-950 p-4 border-b border-amber-600/40 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🏷️</span>
+                    <div>
+                      <h2 className="text-lg font-black text-amber-300 tracking-wider">GLOBAL AUCTION HOUSE</h2>
+                      <p className="text-xs text-stone-400">Trade, list items, and manage live bids</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsAuctionHouseOpen(false)}
+                    className="w-8 h-8 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold text-sm border border-stone-700 transition"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-stone-800 bg-stone-950 px-4 pt-2 gap-2">
+                  <button
+                    onClick={() => { setAuctionTab('ACTIVE'); fetchAuctionsList(); }}
+                    className={`px-4 py-2 text-xs font-bold rounded-t-lg transition border-t border-x ${
+                      auctionTab === 'ACTIVE'
+                        ? 'bg-stone-900 border-amber-600/60 text-amber-300'
+                        : 'bg-stone-950/60 border-transparent text-stone-400 hover:text-stone-200'
+                    }`}
+                  >
+                    🛒 Active Auctions ({auctionsList.filter(a => a.status === 'ACTIVE').length})
+                  </button>
+                  <button
+                    onClick={() => setAuctionTab('CREATE')}
+                    className={`px-4 py-2 text-xs font-bold rounded-t-lg transition border-t border-x ${
+                      auctionTab === 'CREATE'
+                        ? 'bg-stone-900 border-amber-600/60 text-amber-300'
+                        : 'bg-stone-950/60 border-transparent text-stone-400 hover:text-stone-200'
+                    }`}
+                  >
+                    ➕ List Item for Auction
+                  </button>
+                  <button
+                    onClick={() => { setAuctionTab('MY_AUCTIONS'); fetchAuctionsList(); }}
+                    className={`px-4 py-2 text-xs font-bold rounded-t-lg transition border-t border-x ${
+                      auctionTab === 'MY_AUCTIONS'
+                        ? 'bg-stone-900 border-amber-600/60 text-amber-300'
+                        : 'bg-stone-950/60 border-transparent text-stone-400 hover:text-stone-200'
+                    }`}
+                  >
+                    📜 My Listings & Bids
+                  </button>
+                </div>
+
+                {/* Status Messages */}
+                {auctionMessage.error && (
+                  <div className="mx-4 mt-3 p-2.5 bg-red-950/80 border border-red-700/60 rounded text-red-200 text-xs font-medium">
+                    ⚠️ {auctionMessage.error}
+                  </div>
+                )}
+                {auctionMessage.success && (
+                  <div className="mx-4 mt-3 p-2.5 bg-emerald-950/80 border border-emerald-700/60 rounded text-emerald-200 text-xs font-medium">
+                    ✅ {auctionMessage.success}
+                  </div>
+                )}
+
+                {/* Tab Contents */}
+                <div className="p-4 flex-1 overflow-y-auto space-y-4">
+                  {/* TAB 1: ACTIVE AUCTIONS */}
+                  {auctionTab === 'ACTIVE' && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search items or seller..."
+                          value={auctionSearch}
+                          onChange={(e) => setAuctionSearch(e.target.value)}
+                          className="w-full bg-stone-950 border border-stone-800 rounded px-3 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-600/80"
+                        />
+                      </div>
+
+                      {auctionsList.filter(a => a.status === 'ACTIVE' && (
+                        defs[a.itemId]?.name.toLowerCase().includes(auctionSearch.toLowerCase()) ||
+                        a.sellerUsername.toLowerCase().includes(auctionSearch.toLowerCase())
+                      )).length === 0 ? (
+                        <div className="text-center py-12 text-stone-500 text-xs italic">
+                          No active auctions matching your search. Create one!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {auctionsList
+                            .filter(a => a.status === 'ACTIVE' && (
+                              defs[a.itemId]?.name.toLowerCase().includes(auctionSearch.toLowerCase()) ||
+                              a.sellerUsername.toLowerCase().includes(auctionSearch.toLowerCase())
+                            ))
+                            .map((auc) => {
+                              const isSeller = currentUser?.username.toLowerCase() === auc.sellerUsername.toLowerCase();
+                              const isHighest = currentUser?.username.toLowerCase() === auc.highestBidderUsername?.toLowerCase();
+                              const timeLeftSec = Math.max(0, Math.floor((auc.expiresAt - Date.now()) / 1000));
+                              const minutes = Math.floor(timeLeftSec / 60);
+                              const seconds = timeLeftSec % 60;
+                              const timerStr = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+
+                              return (
+                                <div key={auc.id} className="bg-stone-950/80 border border-stone-800 rounded-lg p-3 flex flex-col justify-between hover:border-stone-700 transition">
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <img src={getItemTextureUrl(auc.itemId, 28)} alt={auc.itemId} className="w-7 h-7 object-contain bg-stone-900 rounded p-0.5 border border-stone-800" />
+                                        <div>
+                                          <div className="font-bold text-amber-200 text-xs">{defs[auc.itemId]?.name || auc.itemId} x{auc.itemCount}</div>
+                                          <div className="text-[10px] text-stone-400">Seller: <span className="text-stone-300 font-semibold">{auc.sellerUsername}</span></div>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="text-[10px] font-mono text-amber-400/90 font-bold bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded">
+                                          ⏳ {timerStr}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-stone-900/90 rounded p-2 text-xs space-y-1 my-2 border border-stone-800/80">
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-stone-400 text-[11px]">Current Bid:</span>
+                                        <span className="font-bold text-emerald-400">◆ {auc.currentBid} gems</span>
+                                      </div>
+                                      {auc.highestBidderUsername ? (
+                                        <div className="flex justify-between items-center text-[10px]">
+                                          <span className="text-stone-500">Highest Bidder:</span>
+                                          <span className={`font-semibold ${isHighest ? 'text-amber-300' : 'text-stone-300'}`}>
+                                            {auc.highestBidderUsername} {isHighest ? '(YOU)' : ''}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="text-[10px] text-stone-500 italic">No bids placed yet (Starting: {auc.startingBid})</div>
+                                      )}
+                                      {auc.buyNowPrice && (
+                                        <div className="flex justify-between items-center text-[11px] pt-1 border-t border-stone-800/60">
+                                          <span className="text-stone-400">Buy Now Price:</span>
+                                          <span className="font-bold text-amber-300">◆ {auc.buyNowPrice} gems</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Action Controls */}
+                                  <div className="pt-2">
+                                    {isSeller ? (
+                                      <div className="flex gap-2 items-center">
+                                        <div className="text-[10px] text-stone-500 flex-1 italic">Your listing</div>
+                                        <button
+                                          onClick={() => setCancelConfirmAuction(auc)}
+                                          className="bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-700/60 text-xs px-3 py-1.5 rounded font-bold transition"
+                                        >
+                                          🚫 Cancel Auction
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        <div className="flex gap-2">
+                                          <input
+                                            type="number"
+                                            min={auc.highestBidderUsername ? auc.currentBid + 1 : auc.startingBid}
+                                            placeholder={`Min: ${auc.highestBidderUsername ? auc.currentBid + Math.max(1, Math.floor(auc.currentBid * 0.05)) : auc.startingBid}`}
+                                            value={bidInputMap[auc.id] || ''}
+                                            onChange={(e) => setBidInputMap({ ...bidInputMap, [auc.id]: e.target.value })}
+                                            className="bg-stone-950 border border-stone-800 rounded px-2 py-1 text-xs text-stone-200 w-28 focus:outline-none focus:border-amber-600"
+                                          />
+                                          <button
+                                            onClick={() => handlePlaceBidSubmit(auc.id)}
+                                            className="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs py-1 px-2 rounded transition"
+                                          >
+                                            Place Bid
+                                          </button>
+                                        </div>
+                                        {auc.buyNowPrice && (
+                                          <button
+                                            onClick={() => handleBuyNowSubmit(auc.id)}
+                                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-bold text-xs py-1.5 px-2 rounded transition flex items-center justify-center gap-1"
+                                          >
+                                            ⚡ Buy Now (◆ {auc.buyNowPrice})
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 2: CREATE AUCTION */}
+                  {auctionTab === 'CREATE' && (
+                    <form onSubmit={handleCreateAuctionSubmit} className="space-y-4 max-w-md mx-auto bg-stone-950/80 p-5 rounded-lg border border-stone-800">
+                      <div>
+                        <label className="block text-xs font-bold text-stone-300 mb-1">Select Item from Inventory</label>
+                        <select
+                          value={createAuctionItem}
+                          onChange={(e) => setCreateAuctionItem(e.target.value)}
+                          className="w-full bg-stone-900 border border-stone-800 rounded px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-600"
+                        >
+                          <option value="">-- Choose Item --</option>
+                          {Object.entries(userInventoryRef.current)
+                            .filter(([_, count]) => count > 0)
+                            .map(([id, count]) => (
+                              <option key={id} value={id}>
+                                {defs[id]?.name || id} (x{count} available)
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-stone-300 mb-1">Item Quantity</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={createAuctionItem ? userInventoryRef.current[createAuctionItem] || 1 : 1}
+                            value={createAuctionCount}
+                            onChange={(e) => setCreateAuctionCount(Math.max(1, Number(e.target.value)))}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-stone-300 mb-1">Starting Bid (Gems)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={createAuctionStartBid}
+                            onChange={(e) => setCreateAuctionStartBid(Math.max(1, Number(e.target.value)))}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-600"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-stone-300 mb-1">Buy Now Price (Optional)</label>
+                          <input
+                            type="number"
+                            min={createAuctionStartBid + 1}
+                            placeholder="Leave empty for no Buy Now"
+                            value={createAuctionBuyNow}
+                            onChange={(e) => setCreateAuctionBuyNow(e.target.value)}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-stone-300 mb-1">Auction Duration</label>
+                          <select
+                            value={createAuctionDuration}
+                            onChange={(e) => setCreateAuctionDuration(Number(e.target.value))}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-600"
+                          >
+                            <option value={5}>5 Minutes</option>
+                            <option value={15}>15 Minutes</option>
+                            <option value={60}>1 Hour</option>
+                            <option value={1440}>24 Hours</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-black text-xs rounded transition uppercase tracking-wider"
+                      >
+                        🏷️ List Item on Auction House
+                      </button>
+                    </form>
+                  )}
+
+                  {/* TAB 3: MY LISTINGS & BIDS */}
+                  {auctionTab === 'MY_AUCTIONS' && (
+                    <div className="space-y-6">
+                      {/* My Active Listings */}
+                      <div>
+                        <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <span>📦 My Active Listings</span>
+                        </h3>
+                        {auctionsList.filter(a => a.sellerUsername.toLowerCase() === currentUser?.username.toLowerCase() && a.status === 'ACTIVE').length === 0 ? (
+                          <div className="p-4 bg-stone-950 border border-stone-800 rounded text-stone-500 text-xs italic">
+                            You currently have no active listings.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {auctionsList
+                              .filter(a => a.sellerUsername.toLowerCase() === currentUser?.username.toLowerCase() && a.status === 'ACTIVE')
+                              .map(auc => (
+                                <div key={auc.id} className="bg-stone-950 border border-stone-800 rounded p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <img src={getItemTextureUrl(auc.itemId, 24)} alt={auc.itemId} className="w-6 h-6 object-contain bg-stone-900 rounded p-0.5 border border-stone-800" />
+                                      <div className="font-bold text-xs text-amber-200">{defs[auc.itemId]?.name || auc.itemId} x{auc.itemCount}</div>
+                                    </div>
+                                    <span className="text-[10px] text-amber-400 font-mono">
+                                      ⏳ {Math.max(0, Math.floor((auc.expiresAt - Date.now()) / 1000))}s left
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-stone-400 mb-2">
+                                    Current Bid: <span className="text-emerald-400 font-bold">◆ {auc.currentBid} gems</span>
+                                    {auc.highestBidderUsername && <span className="text-stone-300 ml-1">({auc.highestBidderUsername})</span>}
+                                  </div>
+                                  <button
+                                    onClick={() => setCancelConfirmAuction(auc)}
+                                    className="w-full bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-700/60 text-xs py-1.5 rounded font-bold transition flex items-center justify-center gap-1"
+                                  >
+                                    🚫 Cancel Auction
+                                  </button>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* My Active Bids */}
+                      <div>
+                        <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <span>💰 My Active Bids</span>
+                        </h3>
+                        {auctionsList.filter(a => a.highestBidderUsername?.toLowerCase() === currentUser?.username.toLowerCase() && a.status === 'ACTIVE').length === 0 ? (
+                          <div className="p-4 bg-stone-950 border border-stone-800 rounded text-stone-500 text-xs italic">
+                            You are not the highest bidder on any active auctions.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {auctionsList
+                              .filter(a => a.highestBidderUsername?.toLowerCase() === currentUser?.username.toLowerCase() && a.status === 'ACTIVE')
+                              .map(auc => (
+                                <div key={auc.id} className="bg-stone-950 border border-emerald-900/60 rounded p-3">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div className="font-bold text-xs text-amber-200">{defs[auc.itemId]?.name || auc.itemId} x{auc.itemCount}</div>
+                                    <span className="text-[10px] text-emerald-400 font-bold">HIGHEST BIDDER</span>
+                                  </div>
+                                  <div className="text-xs text-stone-300">
+                                    Your Bid: <span className="font-bold text-emerald-400">◆ {auc.currentBid} gems</span>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Past Auction History */}
+                      <div>
+                        <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">
+                          📜 Recent History
+                        </h3>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {auctionsList
+                            .filter(a => a.status !== 'ACTIVE' && (
+                              a.sellerUsername.toLowerCase() === currentUser?.username.toLowerCase() ||
+                              a.highestBidderUsername?.toLowerCase() === currentUser?.username.toLowerCase()
+                            ))
+                            .map(auc => (
+                              <div key={auc.id} className="bg-stone-950/60 border border-stone-800/60 rounded p-2 text-xs flex justify-between items-center">
+                                <div>
+                                  <span className="font-bold text-stone-300">{defs[auc.itemId]?.name || auc.itemId} x{auc.itemCount}</span>
+                                  <span className="text-[10px] text-stone-500 ml-2">({auc.sellerUsername})</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                    auc.status === 'CANCELLED' ? 'bg-red-950 text-red-400 border border-red-800' :
+                                    auc.status === 'COMPLETED' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+                                    'bg-stone-900 text-stone-400'
+                                  }`}>
+                                    {auc.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CANCEL AUCTION CONFIRMATION MODAL */}
+          {cancelConfirmAuction && (
+            <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-stone-900 border-2 border-red-600 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4">
+                <div className="flex items-center gap-3 border-b border-red-900/60 pb-3">
+                  <span className="text-3xl">🚫</span>
+                  <div>
+                    <h3 className="text-base font-black text-red-400">Confirm Auction Cancellation</h3>
+                    <p className="text-xs text-stone-400">Are you sure you want to cancel this active auction?</p>
+                  </div>
+                </div>
+
+                <div className="bg-stone-950 p-3 rounded border border-stone-800 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-stone-400">Auction Item:</span>
+                    <span className="font-bold text-amber-200">{defs[cancelConfirmAuction.itemId]?.name || cancelConfirmAuction.itemId} x{cancelConfirmAuction.itemCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-400">Current Bid:</span>
+                    <span className="font-bold text-emerald-400">◆ {cancelConfirmAuction.currentBid} gems</span>
+                  </div>
+                  {cancelConfirmAuction.highestBidderUsername && (
+                    <div className="flex justify-between text-amber-300">
+                      <span>Highest Bidder:</span>
+                      <span className="font-bold">{cancelConfirmAuction.highestBidderUsername}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 bg-amber-950/40 border border-amber-800/40 rounded text-amber-200 text-xs">
+                  ⚠️ <strong>Cancellation Guarantee:</strong><br />
+                  - Your item (<strong>{defs[cancelConfirmAuction.itemId]?.name || cancelConfirmAuction.itemId} x{cancelConfirmAuction.itemCount}</strong>) will be returned directly to your inventory.<br />
+                  {cancelConfirmAuction.highestBidderUsername ? (
+                    <span>- Highest bidder (<strong>{cancelConfirmAuction.highestBidderUsername}</strong>) will be fully refunded <strong>{cancelConfirmAuction.currentBid} gems</strong>.</span>
+                  ) : (
+                    <span>- No bids have been placed yet.</span>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => setCancelConfirmAuction(null)}
+                    className="flex-1 py-2 bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold text-xs rounded transition"
+                  >
+                    Keep Auction
+                  </button>
+                  <button
+                    onClick={handleCancelAuctionConfirm}
+                    className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-stone-950 font-black text-xs rounded transition uppercase"
+                  >
+                    Confirm Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Mobile On-Screen Joystick & Jump Button */}
           <div id="mobile">

@@ -1,0 +1,20 @@
+{
+  "auc_1793859690254_zbahm": {
+    "id": "auc_1793859690254_zbahm",
+    "sellerId": "u_acb0fbd0861d6bf7",
+    "sellerUsername": "auc_seller_ds0dl",
+    "itemId": "dirt",
+    "itemCount": 3,
+    "startingBid": 10,
+    "currentBid": 25,
+    "buyNowPrice": 100,
+    "highestBidderId": "u_de98529eb17e2851",
+    "highestBidderUsername": "auc_bidder_lizdb",
+    "createdAt": 1793859690254,
+    "expiresAt": 1793860590254,
+    "status": "CANCELLED",
+    "cancelledAt": 1793859690276,
+    "cancelledBy": "auc_seller_ds0dl",
+    "cancellationReason": "Cancelled by seller before finish."
+  }
+}

@@ -1,12 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
-import { encodeHex } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function encodeHex(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,11 +21,14 @@ serve(async (req) => {
   try {
     const { recoveryCode, newPassword } = await req.json();
 
-    if (!recoveryCode || !newPassword || newPassword.length < 8) {
-      return new Response(JSON.stringify({ error: "Invalid recovery code or password (minimum 8 characters required)." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!recoveryCode || !newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+      return new Response(
+        JSON.stringify({ error: "Invalid recovery code or password (minimum 8 characters required)." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     const supabaseAdmin = createClient(
@@ -29,8 +37,9 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    // Hash provided recovery code
-    const codeHashBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(recoveryCode));
+    // Hash provided recovery code using Web Crypto API SHA-256
+    const cleanCode = recoveryCode.trim();
+    const codeHashBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(cleanCode));
     const codeHash = encodeHex(codeHashBytes);
 
     // Look up unredeemed recovery code
@@ -42,24 +51,32 @@ serve(async (req) => {
       .maybeSingle();
 
     if (lookupError || !record) {
-      return new Response(JSON.stringify({ error: "Invalid or already redeemed recovery code." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Invalid or already redeemed recovery code." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    // Atomically mark recovery code as redeemed
-    const { error: updateError } = await supabaseAdmin
+    // Atomically claim recovery code (prevent simultaneous race conditions)
+    const nowIso = new Date().toISOString();
+    const { data: updatedRecords, error: updateError } = await supabaseAdmin
       .from("recovery_codes")
-      .update({ redeemed_at: new Date().toISOString() })
+      .update({ redeemed_at: nowIso })
       .eq("id", record.id)
-      .is("redeemed_at", null);
+      .is("redeemed_at", null)
+      .select();
 
-    if (updateError) {
-      return new Response(JSON.stringify({ error: "Recovery code redemption failed. Please try again." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (updateError || !updatedRecords || updatedRecords.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "Invalid or already redeemed recovery code." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     // Update user password in Supabase Auth
@@ -68,20 +85,36 @@ serve(async (req) => {
     });
 
     if (passwordError) {
-      return new Response(JSON.stringify({ error: "Failed to update account password." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // Release recovery code if password update fails so user can retry
+      const { error: releaseError } = await supabaseAdmin
+        .from("recovery_codes")
+        .update({ redeemed_at: null })
+        .eq("id", record.id);
+
+      if (releaseError) {
+        console.error("Failed to release recovery code after password update error:", releaseError.message || releaseError);
+      }
+
+      return new Response(
+        JSON.stringify({ error: passwordError.message || "Failed to update account password." }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     return new Response(
       JSON.stringify({ success: true, message: "Password successfully reset using recovery code." }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: err.message || "Recovery failed." }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
 });

@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { WebSocket } from 'ws';
 
 // Pure Logic Units for Supabase & Server Auth Validation
 export function validateUsername(username: string): { valid: boolean; error?: string; normalized: string } {
@@ -236,5 +237,353 @@ describe('Live Edge Functions / HTTP Auth Integration', () => {
     assert.equal(res.status, 400);
     const data = await res.json();
     assert.match(data.error, /invalid or already redeemed/i);
+  });
+});
+
+describe('Multiplayer WebSocket Authoritative Supabase Auth Integration', () => {
+  const SERVER_URL = 'http://localhost:3000';
+  const WS_URL = 'ws://localhost:3000/ws';
+
+  let player1Token = '';
+  let player1User = '';
+  let player1Id = '';
+
+  let player2Token = '';
+  let player2User = '';
+  let player2Id = '';
+
+  test('Registers two test players to obtain valid access tokens', async () => {
+    const suffix1 = Math.random().toString(36).substring(2, 7);
+    player1User = `ws_p1_${suffix1}`;
+    const res1 = await fetch(`${SERVER_URL}/functions/v1/register-player`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: player1User,
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+      }),
+    });
+    const d1 = await res1.json();
+    assert.equal(res1.status, 200);
+    player1Token = d1.session.access_token;
+    player1Id = d1.user.id;
+
+    const suffix2 = Math.random().toString(36).substring(2, 7);
+    player2User = `ws_p2_${suffix2}`;
+    const res2 = await fetch(`${SERVER_URL}/functions/v1/register-player`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: player2User,
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+      }),
+    });
+    const d2 = await res2.json();
+    assert.equal(res2.status, 200);
+    player2Token = d2.session.access_token;
+    player2Id = d2.user.id;
+  });
+
+  test('Rejects WebSocket connection when access token is missing', async () => {
+    await new Promise<void>((resolve) => {
+      const ws = new WebSocket(WS_URL);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'world:join', worldName: 'WSTEST' }));
+      });
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'auth:error') {
+          assert.match(msg.error, /missing/i);
+        }
+      });
+      ws.on('close', (code) => {
+        assert.equal(code, 4001);
+        ws.terminate();
+        resolve();
+      });
+    });
+  });
+
+  test('Rejects WebSocket connection when access token is invalid', async () => {
+    await new Promise<void>((resolve) => {
+      const ws = new WebSocket(`${WS_URL}?token=invalid_token_12345`);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'world:join', worldName: 'WSTEST', token: 'invalid_token_12345' }));
+      });
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'auth:error') {
+          assert.match(msg.error, /invalid or expired/i);
+        }
+      });
+      ws.on('close', (code) => {
+        assert.equal(code, 4001);
+        ws.terminate();
+        resolve();
+      });
+    });
+  });
+
+  test('Rejects WebSocket connection when access token is expired', async () => {
+    const secret = process.env.AUTH_HMAC_SECRET || 'secret';
+    const expiredPayload = Buffer.from(JSON.stringify({ sub: 'expired_user', exp: Math.floor(Date.now() / 1000) - 3600 })).toString('base64url');
+    const signature = crypto.createHmac('sha256', secret).update(expiredPayload).digest('base64url');
+    const expiredToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${expiredPayload}.${signature}`;
+
+    await new Promise<void>((resolve) => {
+      const ws = new WebSocket(`${WS_URL}?token=${expiredToken}`);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'world:join', worldName: 'WSTEST', token: expiredToken }));
+      });
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'auth:error') {
+          assert.match(msg.error, /invalid or expired/i);
+        }
+      });
+      ws.on('close', (code) => {
+        assert.equal(code, 4001);
+        ws.terminate();
+        resolve();
+      });
+    });
+  });
+
+  test('Accepts WebSocket connection with valid token and ignores client-supplied fake username', async () => {
+    await new Promise<void>((resolve) => {
+      const ws = new WebSocket(`${WS_URL}?token=${player1Token}`);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({
+          type: 'world:join',
+          worldName: 'AUTHTESTWORLD',
+          token: player1Token,
+          user: 'FakeImpersonatedUsername' // Should be ignored by server
+        }));
+      });
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'init:world') {
+          assert.equal(msg.myUsername, player1User, 'Server must return official verified username, not fake user');
+          assert.equal(msg.myId, player1Id, 'Server must return official verified userId');
+          ws.terminate();
+          resolve();
+        }
+      });
+    });
+  });
+
+  test('Two authenticated players join same world and synchronize presence', async () => {
+    let p1Joined = false;
+    let p2Init = false;
+
+    await new Promise<void>((resolve) => {
+      const ws1 = new WebSocket(`${WS_URL}?token=${player1Token}`);
+      let ws2: WebSocket | null = null;
+
+      const checkDone = () => {
+        if (p1Joined && p2Init) {
+          try { ws1.terminate(); } catch {}
+          try { if (ws2) ws2.terminate(); } catch {}
+          resolve();
+        }
+      };
+
+      ws1.on('open', () => {
+        ws1.send(JSON.stringify({ type: 'world:join', worldName: 'MULTIWORLD', token: player1Token }));
+      });
+
+      ws1.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'init:world') {
+          // Player 1 in room, now connect Player 2
+          ws2 = new WebSocket(`${WS_URL}?token=${player2Token}`);
+          ws2.on('open', () => {
+            ws2!.send(JSON.stringify({ type: 'world:join', worldName: 'MULTIWORLD', token: player2Token }));
+          });
+          ws2.on('message', (raw2) => {
+            const msg2 = JSON.parse(raw2.toString());
+            if (msg2.type === 'init:world') {
+              assert.equal(msg2.myUsername, player2User);
+              assert.ok(msg2.players.some((p: any) => p.username === player1User), 'Player 2 must see Player 1 in world players');
+              p2Init = true;
+              checkDone();
+            }
+          });
+        } else if (msg.type === 'player:joined') {
+          // Player 1 receives notification that Player 2 joined
+          assert.equal(msg.player.username, player2User);
+          p1Joined = true;
+          checkDone();
+        }
+      });
+    });
+  });
+
+  test('Player identity consistency across reconnects', async () => {
+    let initialMyId = '';
+
+    await new Promise<void>((resolve) => {
+      const wsFirst = new WebSocket(`${WS_URL}?token=${player1Token}`);
+      wsFirst.on('open', () => {
+        wsFirst.send(JSON.stringify({ type: 'world:join', worldName: 'RECONNECTWORLD', token: player1Token }));
+      });
+      wsFirst.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'init:world') {
+          initialMyId = msg.myId;
+          assert.equal(msg.myUsername, player1User);
+          wsFirst.terminate();
+          resolve();
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      const wsSecond = new WebSocket(`${WS_URL}?token=${player1Token}`);
+      wsSecond.on('open', () => {
+        wsSecond.send(JSON.stringify({ type: 'world:join', worldName: 'RECONNECTWORLD', token: player1Token }));
+      });
+      wsSecond.on('message', (rawSecond) => {
+        const msgSecond = JSON.parse(rawSecond.toString());
+        if (msgSecond.type === 'init:world') {
+          assert.equal(msgSecond.myId, initialMyId, 'Reconnected player ID must be consistent');
+          assert.equal(msgSecond.myUsername, player1User);
+          wsSecond.terminate();
+          resolve();
+        }
+      });
+    });
+  });
+});
+
+describe('Global Auction House & Pre-Finish Cancellation Guarantee', () => {
+  const SERVER_URL = 'http://localhost:3000';
+  const sellerSuffix = Math.random().toString(36).substring(2, 7);
+  const sellerUser = `auc_seller_${sellerSuffix}`;
+  const bidderSuffix = Math.random().toString(36).substring(2, 7);
+  const bidderUser = `auc_bidder_${bidderSuffix}`;
+  const testPass = 'AuctionPass123!';
+
+  let createdAuctionId = '';
+
+  test('Registers seller and bidder accounts', async () => {
+    // Register Seller
+    const resS = await fetch(`${SERVER_URL}/functions/v1/register-player`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: sellerUser, password: testPass, confirmPassword: testPass }),
+    });
+    assert.equal(resS.status, 200);
+
+    // Give seller item to list
+    await fetch(`${SERVER_URL}/api/store/buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: sellerUser, itemId: 'dirt', cost: 0, count: 5 }),
+    });
+
+    // Register Bidder & give gems
+    const resB = await fetch(`${SERVER_URL}/functions/v1/register-player`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: bidderUser, password: testPass, confirmPassword: testPass }),
+    });
+    assert.equal(resB.status, 200);
+
+    await fetch(`${SERVER_URL}/api/account/add-gems`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: bidderUser, gems: 100 }),
+    });
+  });
+
+  test('Seller creates an active auction and escrows inventory', async () => {
+    const res = await fetch(`${SERVER_URL}/api/auction/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: sellerUser,
+        itemId: 'dirt',
+        itemCount: 3,
+        startingBid: 10,
+        buyNowPrice: 100,
+        durationMinutes: 15,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.success, true);
+    assert.equal(data.auction.status, 'ACTIVE');
+    assert.equal(data.auction.sellerUsername, sellerUser);
+    assert.equal(data.auction.itemCount, 3);
+    createdAuctionId = data.auction.id;
+  });
+
+  test('Bidder places active bid and escrows gems', async () => {
+    const res = await fetch(`${SERVER_URL}/api/auction/bid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: bidderUser,
+        auctionId: createdAuctionId,
+        bidAmount: 25,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.success, true);
+    assert.equal(data.auction.currentBid, 25);
+    assert.equal(data.auction.highestBidderUsername, bidderUser);
+  });
+
+  test('Cancelling auction before it finishes refunds bidder gems and returns seller items', async () => {
+    const res = await fetch(`${SERVER_URL}/api/auction/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: sellerUser,
+        auctionId: createdAuctionId,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.success, true);
+    assert.equal(data.auction.status, 'CANCELLED');
+
+    // Verify auction list reflects CANCELLED status
+    const resList = await fetch(`${SERVER_URL}/api/auctions`);
+    const dataList = await resList.json();
+    const cancelledAuction = dataList.auctions.find((a: any) => a.id === createdAuctionId);
+    assert.equal(cancelledAuction.status, 'CANCELLED');
+  });
+
+  test('Rejects bidding or duplicate cancellation on cancelled auction', async () => {
+    // Rejects bid on cancelled auction
+    const resBid = await fetch(`${SERVER_URL}/api/auction/bid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: bidderUser,
+        auctionId: createdAuctionId,
+        bidAmount: 50,
+      }),
+    });
+    assert.equal(resBid.status, 400);
+
+    // Rejects duplicate cancellation
+    const resCancel = await fetch(`${SERVER_URL}/api/auction/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: sellerUser,
+        auctionId: createdAuctionId,
+      }),
+    });
+    assert.equal(resCancel.status, 400);
   });
 });

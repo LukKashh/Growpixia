@@ -37,12 +37,25 @@ class GameWebSocketClient(private val serverUrl: String) {
     private var reconnectAttempt = 0
     private var isExplicitClose = false
 
-    fun connect(username: String, worldName: String) {
+    fun connect(worldName: String, accessToken: String) {
         isExplicitClose = false
         _connectionState.value = ConnectionState.CONNECTING
 
+        val encodedToken = try {
+            java.net.URLEncoder.encode(accessToken, "UTF-8")
+        } catch (_: Exception) {
+            accessToken
+        }
+
+        val wsUrl = if (serverUrl.contains("?")) {
+            "$serverUrl&token=$encodedToken"
+        } else {
+            val base = serverUrl.trimEnd('/')
+            if (base.endsWith("/ws")) base else "$base/ws?token=$encodedToken"
+        }
+
         val request = Request.Builder()
-            .url(serverUrl)
+            .url(wsUrl)
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -51,11 +64,11 @@ class GameWebSocketClient(private val serverUrl: String) {
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempt = 0
 
-                // Send world join packet
+                // Send world join packet with authoritative access token
                 val joinMsg = JSONObject().apply {
                     put("type", "world:join")
                     put("worldName", worldName)
-                    put("user", username)
+                    put("token", accessToken)
                 }
                 webSocket.send(joinMsg.toString())
             }

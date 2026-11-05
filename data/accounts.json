@@ -46,5 +46,117 @@
     "inventory": {},
     "createdAt": 1793847965103,
     "lastLogin": 1793847965411
+  },
+  "test_b7t5w": {
+    "id": "u_4c27603a9f694999",
+    "username": "test_b7t5w",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "23e8e1161189959a98ccaf8c34f2d794e0bc2de6c105bff418f7420e5e88603d",
+    "recoveryRedeemedAt": 1793856780082,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793856779742,
+    "lastLogin": 1793856780091
+  },
+  "test_m6bai": {
+    "id": "u_a03c1ed2c2c5c4cb",
+    "username": "test_m6bai",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "90b81bdaadd4e0129d8f5c4fc7dbcb0e4d827439f079a750d465e6b357c62a2a",
+    "recoveryRedeemedAt": 1793856983753,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793856983714,
+    "lastLogin": 1793856983761
+  },
+  "test_50kb5": {
+    "id": "u_d69a7fbfd50c4e86",
+    "username": "test_50kb5",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "68d7538184b636ab1cc8de946d8384ec9dbd1754a1f4b3f73099a47a59417685",
+    "recoveryRedeemedAt": 1793857176078,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793857175812,
+    "lastLogin": 1793857176088
+  },
+  "test_gsq4o": {
+    "id": "u_9f5d2e38e6ca8194",
+    "username": "test_gsq4o",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "6a2a0f44f1e2f6c745b413f60971840f6cad48e782b0adbb1c5447fa907269fb",
+    "recoveryRedeemedAt": 1793857376393,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793857376048,
+    "lastLogin": 1793857376403
+  },
+  "test_93856": {
+    "id": "u_7db31ec8b8d6ef99",
+    "username": "test_93856",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "c1d1cac20dbbeb65c32f789804669fec055a350726cb012971a1abacadad1702",
+    "recoveryRedeemedAt": 1793857567388,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793857566989,
+    "lastLogin": 1793857567405
+  },
+  "test_fn4pa": {
+    "id": "u_60673410dda9ed8c",
+    "username": "test_fn4pa",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "83cbe7cb0d326b8b072de9a0f7096b08286390039c3715dd669c44c553a33cf1",
+    "recoveryRedeemedAt": 1793859689593,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793859689330,
+    "lastLogin": 1793859689619
+  },
+  "ws_p1_nwh51": {
+    "id": "u_adc611b6a67efa25",
+    "username": "ws_p1_nwh51",
+    "passHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea",
+    "recoveryHash": "6c73d086db5d086d8cf2c8e45591546f87602575ccd0ffb162d777c0f63921c3",
+    "recoveryRedeemedAt": null,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793859689638,
+    "lastLogin": 1793859689638
+  },
+  "ws_p2_hf9oy": {
+    "id": "u_cc7d4a34a27f7521",
+    "username": "ws_p2_hf9oy",
+    "passHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea",
+    "recoveryHash": "35bbcd152d978d1efbad31e768a78d215746ac30ee268d834f1445062c20f0a2",
+    "recoveryRedeemedAt": null,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793859689643,
+    "lastLogin": 1793859689643
+  },
+  "auc_seller_ds0dl": {
+    "id": "u_acb0fbd0861d6bf7",
+    "username": "auc_seller_ds0dl",
+    "passHash": "d936c41e100e48c0012c45e60e4993e879b226b99137a8023cfb8b5101baa0cc",
+    "recoveryHash": "6d01fc8484f02cab14aa44e162a2e1b150ae95705dd04964c3a0b6692632381b",
+    "recoveryRedeemedAt": null,
+    "gems": 0,
+    "inventory": {
+      "dirt": 5
+    },
+    "createdAt": 1793859690226,
+    "lastLogin": 1793859690226
+  },
+  "auc_bidder_lizdb": {
+    "id": "u_de98529eb17e2851",
+    "username": "auc_bidder_lizdb",
+    "passHash": "d936c41e100e48c0012c45e60e4993e879b226b99137a8023cfb8b5101baa0cc",
+    "recoveryHash": "f178cc290c7d6920f92bb0335bd58077f2620cf4febe6f554546093b43e3add7",
+    "recoveryRedeemedAt": null,
+    "gems": 100,
+    "inventory": {},
+    "createdAt": 1793859690238,
+    "lastLogin": 1793859690238
   }
 }

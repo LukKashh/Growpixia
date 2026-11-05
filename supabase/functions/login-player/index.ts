@@ -1,12 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
-import { encodeHex } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function encodeHex(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,20 +21,26 @@ serve(async (req) => {
   try {
     const hmacSecret = Deno.env.get("AUTH_HMAC_SECRET");
     if (!hmacSecret) {
-      return new Response(JSON.stringify({ error: "Server configuration error: AUTH_HMAC_SECRET is missing." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Server configuration error: AUTH_HMAC_SECRET is missing." }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     const { username, password } = await req.json();
     const cleanUser = (username || "").trim().toLowerCase();
 
     if (!cleanUser || !password) {
-      return new Response(JSON.stringify({ error: "Invalid username or password." }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Invalid username or password." }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     const supabaseAdmin = createClient(
@@ -38,7 +49,7 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    // Resolve internal email via HMAC-SHA256 with verified secret
+    // Resolve internal email via Web Crypto API HMAC-SHA256 with verified secret
     const keyData = new TextEncoder().encode(hmacSecret);
     const msgData = new TextEncoder().encode(cleanUser);
     const cryptoKey = await crypto.subtle.importKey(
@@ -64,10 +75,13 @@ serve(async (req) => {
 
     if (sessionError || !sessionData.session || !sessionData.user) {
       // Use generic error response to prevent username enumeration
-      return new Response(JSON.stringify({ error: "Invalid username or password." }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Invalid username or password." }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     // Fetch public profile
@@ -89,10 +103,13 @@ serve(async (req) => {
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: "Invalid username or password." }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: "Invalid username or password." }),
+      {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
 });
