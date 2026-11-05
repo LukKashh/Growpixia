@@ -1,0 +1,349 @@
+GrowPixel Backend Hardening & Integration Test Suite
+FINAL IMPLEMENTATION PROMPT
+Version: 2026-11-05
+
+PURPOSE
+Implement the remaining backend-hardening work in the EXISTING GrowPixel project. This is an implementation task, not a rebuild. Inspect the current repository first, preserve its architecture and working features, then make only the targeted changes described below.
+
+PROJECT PRESERVATION RULES
+1. Preserve the existing multiplayer game, WebSocket architecture, gameplay, UI, assets, item/block definitions, drop rates, reward values, and world generation.
+2. The browser client is a thin presentation/input layer. The server is authoritative for identity, Gems, inventory, prices, rewards, and economy mutations.
+3. Supabase Auth is the sole identity authority. Derive the player UUID only from a verified Supabase access token.
+4. Keep the existing world JSON/Firebase persistence. Do not migrate or remove world persistence as part of this task.
+5. Keep the existing profiles and player_inventory tables. Do not create duplicate Gems or inventory tables.
+6. Auction functionality is no longer required. Keep auction features absent from active client/server code. Do not add a replacement marketplace. Do not automatically delete historical auction tables, records, or backup files.
+7. Do not execute production migrations or modify production data. Do not run the actual legacy-data migration.
+8. Never expose a Supabase service-role/secret key in browser code, VITE_ variables, source maps, or client bundles.
+9. Do not silently fall back to guest accounts, local accounts, mock identities, zero balances, or empty inventories when authoritative data cannot be loaded.
+10. Do not redesign screens or remove working features to simplify implementation.
+
+EXISTING SUPABASE PROJECT
+Project ref: ydjynediqdmnosddwusw
+Project URL: https://ydjynediqdmnosddwusw.supabase.co
+Dashboard: https://supabase.com/dashboard/project/ydjynediqdmnosddwusw
+Region: Central EU (Frankfurt)
+
+KNOWN EXISTING TABLES
+- profiles: includes id UUID, username TEXT, gems INT8, created_at (and possibly other existing columns).
+- player_inventory: user_id UUID, item_id TEXT, quantity INT4; composite primary key (user_id, item_id); foreign key to profiles.id; RLS enabled; existing own-inventory SELECT policy.
+- recovery_codes.
+- worlds, world_members, world_blocks, world_events (inspect exact current schema before touching).
+Do not assume this list is exhaustive. Inspect the actual database schema and migrations before writing SQL. Do not use CREATE TABLE IF NOT EXISTS as a substitute for inspecting or repairing an existing schema.
+
+AUTHENTICATION
+- Keep username/password registration and login.
+- Do not add email/phone fields to the user-facing UI and do not add Google sign-in.
+- Existing Edge Functions: register-player, login-player, recover-player.
+- Username pseudo-email is derived from normalized username using HMAC-SHA256: user_<hmac>@growpixel.internal.
+- AUTH_HMAC_SECRET and Supabase server secrets must remain server-side.
+- Remove local registration/login/recovery fallbacks, mock JWT/HMAC identity bypasses, obsolete local password authentication, and any legacy account-auth path.
+- Verify Supabase access tokens using Supabase Auth (for example, auth.getUser(token)).
+- Derive the player UUID only from the verified Supabase user.
+- Reject missing, invalid, or inconsistent profiles. Never generate a fallback username from a UUID or metadata.
+- WebSocket connections must use verified Supabase sessions.
+- HTTP endpoints must accept access tokens only in the Authorization: Bearer header. Reject tokens supplied in request bodies or query parameters.
+- Do not duplicate or conflict with the existing Edge Function authentication implementation. Inspect and reuse the established flow.
+
+AUTHORITATIVE ECONOMY STORAGE
+- profiles.gems is the authoritative Gems balance.
+- player_inventory is the authoritative inventory.
+- RLS remains enabled.
+- Browser clients must not directly mutate Gems or inventory.
+- Privileged economy RPCs are called only by the trusted server using its service-role/secret credential.
+- Never fall back to anon/publishable credentials for server-side privileged operations.
+- Fail closed if the database is unavailable, the profile is missing, or an economy operation fails.
+
+1. ATOMIC IDEMPOTENCY
+Implement a correct database-backed idempotency mechanism for all economy mutations.
+
+Critical concurrency requirement:
+A SELECT ... FOR UPDATE cannot lock a row that does not exist. Do not use “select missing key, then insert” as the concurrency guard.
+
+Use a database UNIQUE constraint and an atomic INSERT ... ON CONFLICT claim. Ensure the idempotency claim, economy mutation, and stored result occur in one PostgreSQL transaction.
+
+Required behavior:
+- Same idempotency key + same authenticated player + same operation type + same canonical payload, including simultaneous requests: exactly one economic mutation occurs; every identical caller receives the same successful stored result.
+- Same key with a different player, operation type, or payload: return HTTP 409 conflict; do not mutate economy data.
+- A retry after a completed operation returns the stored result and does not mutate again.
+- Do not expose an intermediate “processing” response as a conflict for a concurrent identical request. PostgreSQL transaction/unique-conflict behavior must serialize the competing claim and let the second request read the committed result.
+- Do not create a separately committed processing claim or lease system.
+- Store enough data to validate the key scope and replay the original result.
+- Use a globally unique key scope if the requirement is that reusing a key for another player or operation must be rejected. Otherwise, document and enforce the exact scope. The implementation must satisfy the mismatch-conflict requirement above.
+- Ensure all economy changes and the idempotency result commit or roll back together.
+- Handle database errors explicitly. Never report success if the transaction did not commit.
+
+2. CANONICAL PAYLOAD SERIALIZATION AND HASHING
+Create one shared server-side canonical serialization utility and use it for every economy operation.
+
+Required interface:
+toCanonicalString(payload: unknown): string
+
+Requirements:
+- Recursively sort object keys in deterministic lexical order.
+- Preserve array order.
+- Produce deterministic representations for supported JSON values.
+- Reject NaN, positive/negative Infinity, undefined, functions, symbols, circular references, and unsupported object types.
+- Reject Date, Map, Set, class instances, and other non-plain objects unless explicitly converted to a supported plain JSON representation before canonicalization.
+- Normalize negative zero consistently.
+- Use deterministic number serialization.
+- Reject unsafe integer values for economy quantities and integer currency values.
+- Do not silently coerce invalid values to null, strings, or zero.
+- Hash the canonical string using SHA-256 on the trusted server.
+- Never trust a hash supplied by the browser.
+- Bind the authenticated player UUID, operation type, item/product ID, quantity, world/position when relevant, server-calculated price/reward, and every other parameter that can affect the mutation into the canonical payload.
+- Use the same canonicalization implementation across store purchases, drop collection, block placement, and every other economy mutation.
+
+3. CONSISTENT PLAYER DATA LOADING
+Use the existing load_player_data RPC as the single authoritative read path for player Gems and inventory.
+
+- Inspect its current SQL definition and returned shape before using it.
+- Update server-side loadPlayerData() to call this RPC rather than making separate profile and inventory reads.
+- Validate the response structure, UUID, username, Gems value, and inventory rows.
+- Distinguish a valid zero Gems balance and empty inventory from missing data, malformed data, timeout, or database failure.
+- Missing profile or invalid response must be an explicit error; never silently return zero/empty defaults.
+- Remove any fallback to accountsCache or other legacy account storage.
+- During WebSocket world:join, do not announce a fully initialized/ready player session until authoritative player data has loaded successfully.
+- Ensure reconnect behavior does not duplicate player state or bypass the authoritative load.
+
+4. SECURE ECONOMY HTTP ENDPOINTS
+Audit every endpoint that reads or changes Gems, inventory, purchases, rewards, or player-owned items.
+
+Store:
+- The server owns the product catalogue and all prices.
+- The client may submit a product/item identifier, quantity, and a UUID idempotency/request ID as appropriate; it must never set the authoritative cost.
+- Validate product existence, quantity limits, ownership, stock rules if applicable, and server-calculated total.
+- Use Authorization: Bearer <Supabase access token> only.
+- Reject req.body.token and query-string tokens.
+- Each distinct purchase must use a new UUID idempotency key. A retry of that same purchase must reuse the same key.
+- Never derive an idempotency key from username, item ID, and quantity alone.
+- Do not restore a username-based or local-auth fallback.
+
+Gems adjustment:
+- The /api/account/add-gems endpoint must remain disabled/removed completely.
+- Do not create an admin table, admin Gems endpoint, or alternate browser-accessible balance adjustment route.
+- Exceptional balance adjustments are manual SQL operations performed by an authorized operator outside this implementation.
+- Do not add an admin UI.
+
+All economy endpoints:
+- Authenticate first, derive player UUID from the verified Supabase identity, validate input, compute authoritative values on the server, then invoke the atomic RPC.
+- Validate UUIDs, item IDs, quantities, numeric bounds, and request payloads.
+- Return clear non-sensitive errors.
+- Do not expose service-role credentials, SQL internals, stack traces, or secrets.
+
+5. DROP COLLECTION AND CRASH RECOVERY
+Audit the complete drop lifecycle from spawn through pickup, persistence, reconnect, and world reload.
+
+- Client sends only the stable drop ID and required interaction context. It must not submit the reward amount or item quantity as authoritative data.
+- Server verifies the drop exists, belongs to the relevant world, is collectible, and is within the permitted distance.
+- The reward is determined from authoritative server-side drop data.
+- Use a stable deterministic idempotency key scoped to the player and drop identity, with a canonical payload binding the world and reward details.
+- Prevent two players or two simultaneous requests from collecting the same drop more than once.
+- Coordinate durable reward commit and world-drop removal so a server crash cannot cause a committed reward to be awarded again when the drop reappears.
+- Do not rely only on removing the drop from currentRoom.drops in memory and restoring it on error.
+- Implement durable claim/reconciliation behavior appropriate to the existing world persistence architecture. Preserve existing world JSON/Firebase persistence; do not replace it wholesale.
+- Publish the drop removal to clients only after the authoritative transaction succeeds.
+- On database failure, do not report collection success or permanently remove the drop from the world.
+- Test crash/restart scenarios, duplicate requests, simultaneous claims, and reconnect behavior.
+
+6. BLOCK PLACEMENT AND OTHER ECONOMY ACTIONS
+Audit block placement and every action that consumes or grants inventory/Gems.
+
+Block placement:
+- Require a valid UUID request ID. Do not use Date.now(), timestamps, or predictable fallback IDs.
+- Client retries must reuse the same request ID for the same intended placement.
+- Validate world membership, placement coordinates, target occupancy, range, item ownership, and block/item mapping on the server.
+- Stage the world change. Do not publish a placement or consume inventory before the authoritative inventory deduction succeeds.
+- Commit the inventory deduction atomically and then publish the committed world change.
+- If placement fails, inventory must remain unchanged.
+- Ensure reconnect/retry cannot duplicate placements or consume inventory twice.
+- Preserve current gameplay rules and visuals.
+
+Other actions:
+- Inventory consumption, mining rewards, block breaking rewards, store purchases, and all other economy mutations must use the same secure identity, canonical hashing, and atomic idempotency principles.
+- Do not change configured drop rates, XP rewards, Gems rewards, block IDs, item IDs, or gameplay balance unless a defect makes a targeted change essential. Document any such necessary change.
+
+7. SQL AND DATABASE SECURITY
+Inspect all relevant migrations and RPC definitions before modifying them.
+
+- Use fully schema-qualified object names.
+- For SECURITY DEFINER functions, set a fixed safe search_path (prefer SET search_path = '') and schema-qualify every referenced object.
+- Revoke execute privileges from PUBLIC, anon, and authenticated where the RPC is intended only for the trusted server.
+- Grant execute to service_role only where appropriate.
+- Confirm RLS remains enabled on player-owned tables.
+- Ensure browser roles cannot directly modify profiles.gems or player_inventory.
+- Validate item IDs and quantities in SQL as well as in application code.
+- Prevent negative quantities, invalid values, and integer overflow.
+- Ensure all mutations are transactional.
+- Make migrations safe to review and rerun where appropriate; do not assume IF NOT EXISTS repairs an incorrect existing definition.
+- Do not alter unrelated world tables, auth tables, or historical auction data.
+- Do not run production migrations.
+
+8. REAL SUPABASE INTEGRATION TEST SUITE
+Create a real integration suite, for example scripts/test_hardened_integration.ts, targeting a designated NON-PRODUCTION Supabase project.
+
+Do not describe mock-only tests as integration tests. Clearly label unit, mock, and real database integration tests separately.
+
+The integration suite must cover:
+
+A. Idempotency and concurrency
+- Submit two simultaneous identical requests with the same key.
+- Verify exactly one economy mutation occurred.
+- Verify both callers receive the same successful result.
+- Verify the second caller does not receive a transient processing conflict.
+- Reuse the same key with a different payload; expect HTTP 409 and no mutation.
+- Reuse the same key with a different player; expect HTTP 409 and no mutation.
+- Reuse the same key with a different operation type; expect HTTP 409 and no mutation.
+- Retry a completed request; verify the stored result is returned and no second mutation occurs.
+
+B. Canonicalization
+- Object property order does not affect the canonical string/hash.
+- Nested object key order does not affect the result.
+- Array order does affect the result.
+- NaN, Infinity, -Infinity, undefined, functions, symbols, circular references, unsupported objects, and unsafe economy integers are rejected before RPC invocation.
+- Negative zero is handled deterministically.
+
+C. Transaction rollback
+- Force a failure after the Gems mutation is attempted but before the inventory mutation/result completion.
+- Verify Gems, inventory, and idempotency state all roll back.
+- Retry with the same key after the failed transaction; verify it can complete successfully.
+- Verify no partial balance or inventory change remains.
+
+D. Authentication and authorization
+- Expired token rejected.
+- Invalid token rejected.
+- Missing token rejected.
+- Body/query token rejected.
+- Missing or inconsistent profile rejected.
+- anon/authenticated roles cannot execute privileged economy RPCs.
+- service_role can execute the intended server-side RPC.
+- No service key appears in built client assets or source maps.
+
+E. Player data loading
+- Valid player with non-zero Gems and inventory.
+- Valid player with zero Gems and empty inventory.
+- Missing profile.
+- Malformed RPC response.
+- Timeout/database unavailable.
+- Verify errors never become a guest session or a fabricated zero/empty player.
+
+F. Gameplay regression
+- Registration and login.
+- WebSocket authentication and reconnect.
+- World join and player initialization.
+- Mining/block breaking.
+- Drop collection, duplicate pickup, simultaneous pickup, crash/restart recovery.
+- Block placement, failed placement, retry, duplicate request.
+- Store purchase and retry.
+- Gems and inventory display.
+- World load/save and multiplayer synchronization.
+- Confirm existing gameplay, visuals, assets, configured drops and rewards remain intact.
+
+Use an isolated test user/world and clean up only test data created by the suite. Never point destructive tests at production. Do not print tokens, recovery codes, passwords, or service secrets in logs.
+
+9. STRICTLY READ-ONLY LEGACY MIGRATION DRY RUN
+Inspect scripts/migrate_to_supabase.ts and correct it so dry-run mode is genuinely read-only.
+
+The only permitted migration command in this task is:
+tsx scripts/migrate_to_supabase.ts --dry-run
+
+Dry-run must:
+- Perform SELECT/read operations only.
+- Never execute INSERT, UPDATE, DELETE, UPSERT, write-capable RPCs, ledger writes, status changes, Firebase writes, or JSON backup modifications.
+- Never create or modify migration ledger records.
+- Prefer a read-only database credential where practical.
+- Compare legacy data/accounts.json Gems and inventory with the designated NON-PRODUCTION Supabase data.
+- Report matching records, records missing in Supabase, records without verified identity mapping, duplicate/ambiguous usernames, Gems mismatches, missing inventory rows, quantity mismatches, conflicting existing Supabase data, and read/compare failures.
+- Do not guess identity mappings from username alone where duplicates or ambiguity exist.
+- Clearly state what could not be verified.
+- Do not run --run or any actual migration mode.
+- Do not modify production data.
+
+If a genuinely read-only dry-run cannot be guaranteed, do not run it; explain why and leave it blocked.
+
+10. LEGACY ACCOUNT STORAGE CLEANUP
+- Search the entire repository for accountsCache, saveAccounts, accounts.json writes, Firebase account synchronization, local password auth, mock JWT/HMAC verification, and username-based economy fallbacks.
+- Remove legacy account/economy writes and authentication bypasses from active runtime paths.
+- Do not delete historical backups or user data files automatically.
+- Do not remove world JSON/Firebase persistence.
+- Before deleting any legacy account file, prove that the migration has been verified and approved. This task does not authorize deleting it.
+
+11. DEPLOYMENT AND ENVIRONMENT
+- Inspect current environment variable names and deployment setup.
+- Keep server-only secrets in server environment configuration.
+- Browser configuration may contain only the Supabase URL and publishable/anon key as required for Supabase Auth.
+- Never add service-role/secret keys to VITE_ variables.
+- Do not print secrets while inspecting configuration.
+- Document required environment variables, Edge Function deployment state, SQL migration order, manual deployment steps, rollback steps, and post-deployment checks.
+- Do not deploy to production or apply production SQL as part of this task.
+
+12. REQUIRED DELIVERABLES
+Provide:
+1. Updated canonical serialization and SHA-256 utility.
+2. Corrected atomic idempotency SQL/RPC implementation.
+3. Updated server economy handlers using the shared RPC.
+4. Updated loadPlayerData() using load_player_data.
+5. Secure store endpoint with server-side pricing and Bearer-only authentication.
+6. Disabled/removed /api/account/add-gems endpoint.
+7. Crash-safe drop claim/reconciliation implementation.
+8. Idempotent block placement and audit of other economy mutations.
+9. Hardened SQL migrations with privilege/RLS review.
+10. Real Supabase integration test suite and instructions for the non-production environment.
+11. Strictly read-only migration dry-run implementation and report, if safe to run.
+12. Repository-wide audit results for legacy account/auth paths.
+13. List of changed files and a concise explanation of each change.
+14. Environment variables and manual deployment/rollback instructions.
+15. Explicit list of remaining limitations and blocked items.
+
+For every task, label status accurately as one of:
+- Implemented
+- Unit-tested
+- Integration-tested
+- Verified
+- Pending
+- Blocked
+
+Never label a mocked test as Integration-tested or Verified.
+
+13. IMPLEMENTATION ORDER
+Work incrementally in this order:
+1. Inspect repository, current branch, package scripts, server architecture, existing SQL migrations, and Supabase schema.
+2. Produce a concise baseline report and identify exact files to change.
+3. Consolidate authentication and remove active legacy bypasses.
+4. Implement canonical serialization and tests.
+5. Implement atomic idempotency SQL/RPC and transaction tests.
+6. Integrate all economy operations with the hardened RPC.
+7. Implement authoritative player data loading.
+8. Harden store, drop collection, block placement, and all other economy endpoints.
+9. Harden the read-only migration dry-run.
+10. Run unit tests, real non-production integration tests, and gameplay regression tests.
+11. Review secrets, RLS, RPC grants, world persistence, and multiplayer behavior.
+12. Produce deployment and rollback documentation.
+
+Do not stop after writing a plan. Implement the changes in the existing project. If a prerequisite is missing, make safe progress on independent tasks and clearly mark the blocked work. Do not invent successful test results.
+
+DEFINITION OF DONE
+The task is complete only when:
+- Existing multiplayer and WebSocket gameplay still work.
+- Supabase Auth is the sole identity authority.
+- WebSocket sessions are authenticated and player initialization waits for authoritative data.
+- Gems are stored in profiles.gems and inventory in player_inventory.
+- All economy operations are server-authoritative, transactional, and idempotent.
+- Simultaneous identical requests cause exactly one mutation and return the same successful result.
+- Mismatched idempotency key reuse returns conflict without mutation.
+- Canonical hashing is deterministic and rejects invalid values.
+- Player loading uses load_player_data and fails closed on errors.
+- Store pricing is server-side and tokens are Bearer-header-only.
+- /api/account/add-gems is disabled/removed.
+- Drop collection is protected against duplicate claims and crash/restart re-awards.
+- Block placement charges inventory only after successful authoritative placement.
+- Legacy account/auth bypasses are absent from active runtime paths.
+- World JSON/Firebase persistence remains intact.
+- Auction functionality remains absent from active code, with historical data preserved.
+- Real non-production integration tests pass.
+- Migration dry-run is strictly read-only; no actual migration is performed.
+- No production data or schema is changed.
+- Secrets are absent from client bundles.
+- Deployment, rollback, and monitoring steps are documented.
+
+FINAL SAFETY RULE
+Before each potentially destructive operation, identify the target environment and show exactly what would change. Do not execute production migrations, actual data migration, production writes, or destructive cleanup. If environment identity is uncertain, stop and ask for clarification.

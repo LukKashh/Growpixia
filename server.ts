@@ -10,6 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { createClient } from '@supabase/supabase-js';
+import { toCanonicalString } from './src/lib/canonicalJson.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,10 +21,9 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Persistent data directory & Firebase
+// Persistent data directory
 const DATA_DIR = path.join(__dirname, 'data');
 const WORLDS_DIR = path.join(DATA_DIR, 'worlds');
-const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(WORLDS_DIR)) fs.mkdirSync(WORLDS_DIR, { recursive: true });
@@ -68,79 +68,43 @@ interface VerifiedIdentity {
   username: string;
 }
 
-async function verifyPlayerToken(token: string): Promise<VerifiedIdentity | null> {
-  if (!token || typeof token !== 'string') return null;
+async function verifyPlayerToken(token: string): Promise<VerifiedIdentity> {
+  if (!token || typeof token !== 'string') {
+    throw new Error('AUTH_REQUIRED: Invalid or missing token');
+  }
 
   const cleanToken = token.trim();
-  if (!cleanToken) return null;
-
-  // STRICT: Verify via official Supabase Auth API
-  if (supabaseAdmin) {
-    try {
-      const { data, error } = await supabaseAdmin.auth.getUser(cleanToken);
-      if (!error && data?.user) {
-        const u = data.user;
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('username')
-          .eq('id', u.id)
-          .maybeSingle();
-
-        const username = profile?.username || u.user_metadata?.username || `User_${u.id.substring(0, 8)}`;
-        return {
-          userId: u.id,
-          username
-        };
-      }
-    } catch (err) {
-      console.warn('Supabase auth.getUser token verification error:', err);
-    }
+  if (!cleanToken) {
+    throw new Error('AUTH_REQUIRED: Token cannot be empty');
   }
 
-  // Token is invalid, expired, or unverifiable
-  console.warn('Authentication rejected: Invalid or unverified token.');
-  return null;
-}
-
-// --- Authoritative Account Storage ---
-interface Account {
-  id: string;
-  username: string;
-  passHash: string;
-  recoveryHash?: string;
-  recoveryRedeemedAt?: number | null;
-  gems: number;
-  inventory: Record<string, number>;
-  createdAt: number;
-  lastLogin: number;
-}
-
-function loadAccounts(): Record<string, Account> {
-  try {
-    if (fs.existsSync(ACCOUNTS_FILE)) {
-      return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'));
-    }
-  } catch (err) {
-    console.error('Error loading accounts:', err);
+  if (!supabaseAdmin) {
+    throw new Error('SERVER_CONFIG_ERROR: Supabase admin not configured');
   }
-  return {};
-}
 
-function saveAccounts(accounts: Record<string, Account>) {
-  try {
-    // Legacy JSON write disabled - Supabase is authoritative for player economy
-    if (firestoreDb) {
-      for (const [key, acc] of Object.entries(accounts)) {
-        setDoc(doc(firestoreDb, 'users', key), acc).catch(() => {});
-      }
-    }
-  } catch (err) {
-    console.error('Error saving accounts:', err);
+  const { data, error } = await supabaseAdmin.auth.getUser(cleanToken);
+  if (error || !data?.user) {
+    throw new Error('AUTH_INVALID: ' + (error?.message || 'Invalid session'));
   }
+
+  const u = data.user;
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('username')
+    .eq('id', u.id)
+    .maybeSingle();
+
+  const username = profile?.username || u.user_metadata?.username || `User_${u.id.substring(0, 8)}`;
+  return {
+    userId: u.id,
+    username
+  };
 }
 
-// In-memory accounts cache
-const accountsCache: Record<string, Account> = loadAccounts();
+function calculatePayloadHash(payload: any): string {
+  const str = toCanonicalString(payload);
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
 
 function broadcastToAllPlayers(payloadStr: string) {
   for (const room of activeRooms.values()) {
@@ -175,72 +139,18 @@ async function loadPlayerData(userId: string): Promise<PlayerEconomyState> {
     throw new Error('Authoritative Supabase database is not configured (missing SUPABASE_SERVICE_ROLE_KEY).');
   }
 
-  // 1. Load authoritative Gems balance from profiles table
-  const { data: profile, error: pError } = await supabaseAdmin
-    .from('profiles')
-    .select('gems')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (pError) {
-    console.error(`Error loading player profile from Supabase for user ${userId}:`, pError);
-    throw new Error(`Database error loading profile: ${pError.message}`);
-  }
-
-  if (!profile) {
-    throw new Error(`Authoritative profile not found in Supabase for user: ${userId}`);
-  }
-
-  // 2. Load authoritative inventory item rows from player_inventory table
-  const { data: inventoryData, error: iError } = await supabaseAdmin
-    .from('player_inventory')
-    .select('item_id, quantity')
-    .eq('user_id', userId);
-
-  if (iError) {
-    console.error(`Error loading player inventory from Supabase for user ${userId}:`, iError);
-    throw new Error(`Database error loading inventory: ${iError.message}`);
-  }
-
-  const inventory: Record<string, number> = {};
-  if (inventoryData) {
-    for (const row of inventoryData) {
-      if (row.quantity > 0) {
-        inventory[row.item_id] = row.quantity;
-      }
-    }
-  }
-
-  return {
-    gems: Math.max(0, Number(profile.gems || 0)),
-    inventory
-  };
-}
-
-async function updatePlayerEconomy(
-  userId: string,
-  gemsDelta: number,
-  inventoryDelta: Record<string, number> = {},
-  idempotencyKey?: string
-): Promise<PlayerEconomyState> {
-  if (!supabaseAdmin) {
-    throw new Error('Authoritative Supabase database is not configured (missing SUPABASE_SERVICE_ROLE_KEY).');
-  }
-
-  const { data, error } = await supabaseAdmin.rpc('update_player_economy', {
-    p_user_id: userId,
-    p_gems_delta: gemsDelta,
-    p_inventory_delta: inventoryDelta,
-    p_idempotency_key: idempotencyKey || null
+  // Use the authoritative load_player_data RPC
+  const { data, error } = await supabaseAdmin.rpc('load_player_data', {
+    p_user_id: userId
   });
 
   if (error) {
-    console.error(`Error in Supabase update_player_economy for user ${userId}:`, error);
-    throw new Error(error.message || 'Database economy transaction failed.');
+    console.error(`Error in Supabase load_player_data for user ${userId}:`, error);
+    throw new Error(`Database error loading player data: ${error.message}`);
   }
 
-  if (!data || typeof data.gems !== 'number') {
-    throw new Error('Invalid response payload received from update_player_economy RPC.');
+  if (!data || typeof data.gems !== 'number' || !data.inventory) {
+    throw new Error(`Authoritative profile not found or malformed in Supabase for user: ${userId}`);
   }
 
   return {
@@ -249,45 +159,56 @@ async function updatePlayerEconomy(
   };
 }
 
-// Default starting inventory for new players
-function getStarterInventory(): Record<string, number> {
-  return {};
-}
-
-// Cryptographically secure password hashing (SHA-256)
-function hashPasswordSecure(pass: string): string {
-  return crypto.createHash('sha256').update(pass).digest('hex');
-}
-
-// Legacy hash support for existing account migration
-function hashPasswordLegacy(pass: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < pass.length; i++) {
-    h ^= pass.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+async function updatePlayerEconomy(
+  userId: string,
+  operationType: string,
+  gemsDelta: number,
+  inventoryDelta: Record<string, number> = {},
+  idempotencyKey?: string,
+  payload?: any
+): Promise<PlayerEconomyState> {
+  if (!supabaseAdmin) {
+    throw new Error('Authoritative Supabase database is not configured (missing SUPABASE_SERVICE_ROLE_KEY).');
   }
-  return (h >>> 0).toString(16);
-}
 
-// Derive internal identifier via HMAC-SHA256 with strictly required AUTH_HMAC_SECRET
-function deriveHmacIdentifier(username: string): string {
-  const secret = process.env.AUTH_HMAC_SECRET;
-  if (!secret) {
-    throw new Error('Server configuration error: AUTH_HMAC_SECRET is missing.');
+  // Generate stable SHA-256 hash of the payload for hardened idempotency using strict canonicalization
+  const payloadHash = payload ? calculatePayloadHash(payload) : '';
+
+  const { data, error } = await supabaseAdmin.rpc('update_player_economy_v3', {
+    p_user_id: userId,
+    p_operation_type: operationType,
+    p_gems_delta: gemsDelta,
+    p_inventory_delta: inventoryDelta,
+    p_idempotency_key: idempotencyKey || null,
+    p_payload_hash: payloadHash || null
+  });
+
+  if (error) {
+    console.error(`Error in Supabase update_player_economy_v3 for user ${userId}:`, error);
+    // Map specific database errors to user-friendly messages
+    if (error.message?.includes('IDEMPOTENCY_CONFLICT')) {
+       throw new Error('CONFLICT: This operation has already been processed with different parameters.');
+    }
+    if (error.message?.includes('INSUFFICIENT_FUNDS')) {
+       throw new Error('INSUFFICIENT_FUNDS: Not enough Gems to complete this operation.');
+    }
+    if (error.message?.includes('INSUFFICIENT_INVENTORY')) {
+       throw new Error('INSUFFICIENT_INVENTORY: Not enough items to complete this operation.');
+    }
+    throw new Error(error.message || 'Database economy transaction failed.');
   }
-  return crypto.createHmac('sha256', secret).update(username.toLowerCase().trim()).digest('hex');
+
+  if (!data || typeof data.gems !== 'number') {
+    throw new Error('Invalid response payload received from update_player_economy_v3 RPC.');
+  }
+
+  return {
+    gems: Math.max(0, Number(data.gems)),
+    inventory: (data.inventory as Record<string, number>) || {}
+  };
 }
 
-// Generate mock JWT token for session compatibility
-function createSessionTokens(userId: string, email: string) {
-  const payload = Buffer.from(JSON.stringify({ sub: userId, email, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
-  const signature = crypto.createHmac('sha256', process.env.AUTH_HMAC_SECRET || 'secret').update(payload).digest('base64url');
-  const accessToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${payload}.${signature}`;
-  const refreshToken = crypto.randomBytes(24).toString('hex');
-  return { accessToken, refreshToken };
-}
-
-// Unified Register Handler
+// Unified Register Handler (Supabase Auth Only)
 const handleRegisterPlayer = async (req: Request, res: Response) => {
   try {
     const { username, password, confirmPassword } = req.body;
@@ -302,129 +223,69 @@ const handleRegisterPlayer = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
-    if (supabaseAdmin) {
-      // Authoritative Supabase Auth Path
-      const internalEmail = `${clean.toLowerCase()}@growpixel.internal`;
-      
-      // 1. Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: internalEmail,
-        password: password,
-        user_metadata: { username: clean },
-        email_confirm: true
-      });
-
-      if (authError) {
-        if (authError.message.includes('already registered')) {
-          return res.status(409).json({ error: 'Username is already taken.' });
-        }
-        return res.status(400).json({ error: authError.message });
-      }
-
-      const user = authData.user;
-      if (!user) throw new Error('Failed to create user record.');
-
-      // 2. Initial profile setup (Gems and recovery code hash handled in DB/Server)
-      // Note: profiles table usually has a trigger or we insert here.
-      // We will rely on the profiles table existing and being linkable by ID.
-      const { error: profError } = await supabaseAdmin
-        .from('profiles')
-        .upsert({ id: user.id, username: clean, gems: 0 });
-
-      if (profError) {
-        console.error('Failed to create profile record:', profError);
-      }
-
-      // Generate recovery code (stored in public.recovery_codes via migration 0)
-      const rawRecoveryCode = crypto.randomBytes(16).toString('hex');
-      const recoveryHash = crypto.createHash('sha256').update(rawRecoveryCode).digest('hex');
-      await supabaseAdmin.from('recovery_codes').insert({ user_id: user.id, code_hash: recoveryHash });
-
-      // 3. Generate session for the newly created user
-      const { data: sessData, error: sessError } = await supabaseAdmin.auth.admin.generateLink({
-        type: 'signup',
-        email: internalEmail,
-        password: password
-      });
-
-      // For simplicity in this proxy, we'll just sign them in or return the user.
-      // Official Supabase way to get a session for a user you just created is signInWithPassword.
-      const { data: loginData, error: loginError } = await supabaseAdmin.auth.signInWithPassword({
-        email: internalEmail,
-        password: password
-      });
-
-      if (loginError) {
-        return res.status(200).json({
-          success: true,
-          user: { id: user.id, username: clean, gems: 0, inventory: {} },
-          recoveryCode: rawRecoveryCode,
-          message: 'Account created. Please log in.'
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        user: {
-          id: user.id,
-          username: clean,
-          gems: 0,
-          inventory: {}
-        },
-        session: loginData.session,
-        recoveryCode: rawRecoveryCode
-      });
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Auth server is temporarily unavailable (Supabase not configured).' });
     }
 
-    // Fallback Legacy Local Path (if Supabase not configured)
-    if (!process.env.AUTH_HMAC_SECRET) {
-      return res.status(500).json({ error: 'Server configuration error: AUTH_HMAC_SECRET is missing.' });
+    // Authoritative Supabase Auth Path
+    const internalEmail = `${clean.toLowerCase()}@growpixel.internal`;
+    
+    // 1. Create user in Supabase Auth
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: internalEmail,
+      password: password,
+      user_metadata: { username: clean },
+      email_confirm: true
+    });
+
+    if (authError) {
+      if (authError.message.includes('already registered') || authError.message.includes('email_exists')) {
+        return res.status(409).json({ error: 'Username is already taken.' });
+      }
+      return res.status(400).json({ error: authError.message });
     }
 
-    const lower = clean.toLowerCase();
-    const existing = Object.values(accountsCache).find((a) => a.username.toLowerCase() === lower);
-    if (existing) {
-      return res.status(409).json({ error: 'Username is already taken.' });
+    const user = authData.user;
+    if (!user) throw new Error('Failed to create user record.');
+
+    // 2. Initial profile setup
+    const { error: profError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ id: user.id, username: clean, gems: 0 });
+
+    if (profError) {
+      console.error('Failed to create profile record:', profError);
     }
 
-    const internalId = deriveHmacIdentifier(clean);
-    const userId = 'u_' + internalId.substring(0, 16);
-    const internalEmail = `user_${internalId}@growpixel.internal`;
+    // Generate recovery code
     const rawRecoveryCode = crypto.randomBytes(16).toString('hex');
     const recoveryHash = crypto.createHash('sha256').update(rawRecoveryCode).digest('hex');
+    await supabaseAdmin.from('recovery_codes').insert({ user_id: user.id, code_hash: recoveryHash });
 
-    const newAccount: Account = {
-      id: userId,
-      username: clean,
-      passHash: hashPasswordSecure(password),
-      recoveryHash,
-      recoveryRedeemedAt: null,
-      gems: 0,
-      inventory: getStarterInventory(),
-      createdAt: Date.now(),
-      lastLogin: Date.now()
-    };
+    // 3. Login the user immediately to get a session
+    const { data: loginData, error: loginError } = await supabaseAdmin.auth.signInWithPassword({
+      email: internalEmail,
+      password: password
+    });
 
-    accountsCache[lower] = newAccount;
-    saveAccounts(accountsCache);
-
-    const { accessToken, refreshToken } = createSessionTokens(userId, internalEmail);
+    if (loginError) {
+      return res.status(200).json({
+        success: true,
+        user: { id: user.id, username: clean, gems: 0, inventory: {} },
+        recoveryCode: rawRecoveryCode,
+        message: 'Account created. Please log in manually.'
+      });
+    }
 
     return res.status(200).json({
       success: true,
       user: {
-        id: newAccount.id,
-        username: newAccount.username,
-        gems: newAccount.gems,
-        inventory: newAccount.inventory
+        id: user.id,
+        username: clean,
+        gems: 0,
+        inventory: {}
       },
-      session: {
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        token_type: 'bearer',
-        expires_in: 3600,
-        user: { id: userId, email: internalEmail }
-      },
+      session: loginData.session,
       recoveryCode: rawRecoveryCode
     });
   } catch (err: any) {
@@ -433,85 +294,39 @@ const handleRegisterPlayer = async (req: Request, res: Response) => {
   }
 };
 
-// Unified Login Handler
+// Unified Login Handler (Supabase Auth Only)
 const handleLoginPlayer = async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
     const clean = (username || '').trim().toLowerCase();
 
-    if (supabaseAdmin) {
-      // Authoritative Supabase Auth Path
-      const internalEmail = `${clean}@growpixel.internal`;
-      const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
-        email: internalEmail,
-        password: password
-      });
-
-      if (authError || !authData.user) {
-        return res.status(401).json({ error: 'Invalid username or password.' });
-      }
-
-      // Load authoritative player economy data
-      const playerData = await loadPlayerData(authData.user.id).catch(() => ({ gems: 0, inventory: {} }));
-
-      return res.status(200).json({
-        success: true,
-        user: {
-          id: authData.user.id,
-          username: authData.user.user_metadata?.username || username,
-          gems: playerData.gems,
-          inventory: playerData.inventory
-        },
-        session: authData.session
-      });
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Auth server is temporarily unavailable (Supabase not configured).' });
     }
 
-    // Fallback Legacy Local Path
-    if (!process.env.AUTH_HMAC_SECRET) {
-      return res.status(500).json({ error: 'Server configuration error: AUTH_HMAC_SECRET is missing.' });
-    }
+    // Authoritative Supabase Auth Path
+    const internalEmail = `${clean}@growpixel.internal`;
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email: internalEmail,
+      password: password
+    });
 
-    const acc = accountsCache[clean];
-    if (!acc) {
+    if (authError || !authData.user) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    const secureHash = hashPasswordSecure(password);
-    const legacyHash = hashPasswordLegacy(password);
-
-    if (acc.passHash !== secureHash && acc.passHash !== legacyHash) {
-      return res.status(401).json({ error: 'Invalid username or password.' });
-    }
-
-    if (acc.passHash === legacyHash) {
-      acc.passHash = secureHash;
-    }
-
-    acc.lastLogin = Date.now();
-    saveAccounts(accountsCache);
-
-    const internalId = deriveHmacIdentifier(acc.username);
-    const internalEmail = `user_${internalId}@growpixel.internal`;
-    const { accessToken, refreshToken } = createSessionTokens(acc.id || 'u_' + internalId.substring(0, 16), internalEmail);
+    // Load authoritative player economy data
+    const playerData = await loadPlayerData(authData.user.id).catch(() => ({ gems: 0, inventory: {} }));
 
     return res.status(200).json({
       success: true,
       user: {
-        id: acc.id,
-        username: acc.username,
-        gems: acc.gems,
-        inventory: acc.inventory
+        id: authData.user.id,
+        username: authData.user.user_metadata?.username || username,
+        gems: playerData.gems,
+        inventory: playerData.inventory
       },
-      session: {
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        token_type: 'bearer',
-        expires_in: 3600,
-        user: {
-          id: acc.id,
-          email: internalEmail
-        }
-      }
+      session: authData.session
     });
   } catch (err: any) {
     console.error('Login error:', err);
@@ -519,7 +334,7 @@ const handleLoginPlayer = async (req: Request, res: Response) => {
   }
 };
 
-// Unified Recovery Handler
+// Unified Recovery Handler (Supabase Auth Only)
 const handleRecoverPlayer = async (req: Request, res: Response) => {
   try {
     const { recoveryCode, newPassword } = req.body;
@@ -529,53 +344,37 @@ const handleRecoverPlayer = async (req: Request, res: Response) => {
 
     const codeHash = crypto.createHash('sha256').update(recoveryCode.trim()).digest('hex');
 
-    if (supabaseAdmin) {
-      // Authoritative Supabase Path
-      const { data: recCode, error: recError } = await supabaseAdmin
-        .from('recovery_codes')
-        .select('user_id')
-        .eq('code_hash', codeHash)
-        .is('redeemed_at', null)
-        .maybeSingle();
-
-      if (recError || !recCode) {
-        return res.status(400).json({ error: 'Invalid or already redeemed recovery code.' });
-      }
-
-      // 1. Update user password in Supabase Auth
-      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(recCode.user_id, {
-        password: newPassword
-      });
-
-      if (authError) {
-        return res.status(400).json({ error: authError.message });
-      }
-
-      // 2. Mark code as redeemed
-      await supabaseAdmin
-        .from('recovery_codes')
-        .update({ redeemed_at: new Date().toISOString() })
-        .eq('user_id', recCode.user_id)
-        .eq('code_hash', codeHash);
-
-      return res.status(200).json({
-        success: true,
-        message: 'Password successfully reset using recovery code.'
-      });
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Auth server is temporarily unavailable (Supabase not configured).' });
     }
 
-    // Fallback Legacy Local Path
-    const acc = Object.values(accountsCache).find(
-      (a) => a.recoveryHash === codeHash && !a.recoveryRedeemedAt
-    );
+    // Authoritative Supabase Path
+    const { data: recCode, error: recError } = await supabaseAdmin
+      .from('recovery_codes')
+      .select('user_id')
+      .eq('code_hash', codeHash)
+      .is('redeemed_at', null)
+      .maybeSingle();
 
-    if (!acc) {
+    if (recError || !recCode) {
       return res.status(400).json({ error: 'Invalid or already redeemed recovery code.' });
     }
 
-    acc.recoveryRedeemedAt = Date.now();
-    acc.passHash = hashPasswordSecure(newPassword);
-    saveAccounts(accountsCache);
+    // 1. Update user password in Supabase Auth
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(recCode.user_id, {
+      password: newPassword
+    });
+
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
+    }
+
+    // 2. Mark code as redeemed
+    await supabaseAdmin
+      .from('recovery_codes')
+      .update({ redeemed_at: new Date().toISOString() })
+      .eq('user_id', recCode.user_id)
+      .eq('code_hash', codeHash);
 
     return res.status(200).json({
       success: true,
@@ -612,35 +411,21 @@ app.post('/api/store/buy', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body.token || '');
 
-    let userId: string;
-    let username: string;
-
-    if (token) {
-      const verified = await verifyPlayerToken(token);
-      if (!verified) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid or expired session token.' });
-      }
-      userId = verified.userId;
-      username = verified.username;
-    } else {
-      const cleanUser = (req.body.username || '').trim();
-      if (!cleanUser) {
-        return res.status(401).json({ error: 'Unauthorized: Session token required.' });
-      }
-      if (supabaseAdmin) {
-        return res.status(401).json({ error: 'Unauthorized: Bearer session token is required.' });
-      }
-      const acc = Object.values(accountsCache).find(a => a.username.toLowerCase() === cleanUser.toLowerCase());
-      if (!acc) return res.status(404).json({ error: 'User not found.' });
-      userId = acc.id;
-      username = acc.username;
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: Session token required.' });
     }
+
+    const verified = await verifyPlayerToken(token);
+    if (!verified) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or expired session token.' });
+    }
+    const userId = verified.userId;
 
     const { itemId, count, requestId } = req.body;
     const cleanItem = (itemId || '').trim();
     const qty = Math.max(1, Math.floor(Number(count) || 1));
 
-    // Validate item against authoritative store catalogue (do not trust client price)
+    // Validate item against authoritative store catalogue
     const unitPrice = STORE_CATALOGUE[cleanItem];
     if (unitPrice === undefined) {
       return res.status(400).json({ error: `Item '${cleanItem}' is not available in store catalogue.` });
@@ -649,12 +434,13 @@ app.post('/api/store/buy', async (req: Request, res: Response) => {
     const totalPrice = unitPrice * qty;
 
     // Stable request identifier for idempotency
-    const clientReqId = (requestId || req.body.idempotencyKey || '').trim();
-    const idempotencyKey = clientReqId
-      ? `store_buy_${userId}_${cleanItem}_${clientReqId}`
-      : `store_buy_${userId}_${cleanItem}_qty${qty}`;
+    const idempotencyKey = (requestId || req.body.idempotencyKey || '').trim();
+    if (!idempotencyKey) {
+       return res.status(400).json({ error: 'requestId is required for store purchases.' });
+    }
 
-    const updated = await updatePlayerEconomy(userId, -totalPrice, { [cleanItem]: qty }, idempotencyKey);
+    const payload = { userId, itemId: cleanItem, count: qty, totalPrice };
+    const updated = await updatePlayerEconomy(userId, 'store_buy', -totalPrice, { [cleanItem]: qty }, idempotencyKey, payload);
 
     // Sync active player if online
     for (const room of activeRooms.values()) {
@@ -682,68 +468,8 @@ app.post('/api/store/buy', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/account/add-gems', async (req: Request, res: Response) => {
-  try {
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body.token || '');
-    const { username, gems, requestId } = req.body;
-    const delta = Math.max(0, Math.min(1000, Math.floor(Number(gems) || 0)));
-
-    let targetUserId: string;
-
-    if (token) {
-      const verified = await verifyPlayerToken(token);
-      if (!verified) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid session token.' });
-      }
-      targetUserId = verified.userId;
-    } else {
-      const clean = (username || '').trim();
-      if (!clean) {
-        return res.status(400).json({ error: 'Username or valid session token required.' });
-      }
-      if (supabaseAdmin) {
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('id')
-          .ilike('username', clean)
-          .maybeSingle();
-        if (!profile) return res.status(404).json({ error: 'User profile not found in Supabase.' });
-        targetUserId = profile.id;
-      } else {
-        const acc = Object.values(accountsCache).find(a => a.username.toLowerCase() === clean.toLowerCase());
-        if (!acc) return res.status(404).json({ error: 'User not found.' });
-        targetUserId = acc.id;
-      }
-    }
-
-    const clientReqId = (requestId || req.body.idempotencyKey || '').trim();
-    const idempotencyKey = clientReqId
-      ? `add_gems_${targetUserId}_${clientReqId}`
-      : `add_gems_${targetUserId}_delta${delta}`;
-
-    const updated = await updatePlayerEconomy(targetUserId, delta, {}, idempotencyKey);
-
-    for (const room of activeRooms.values()) {
-      const p = room.players.get(targetUserId);
-      if (p) {
-        p.gems = updated.gems;
-        p.inventory = updated.inventory;
-        if (p.ws.readyState === WebSocket.OPEN) {
-          p.ws.send(JSON.stringify({
-            type: 'inventory:sync',
-            inventory: p.inventory,
-            gems: p.gems
-          }));
-        }
-      }
-    }
-
-    return res.json({ success: true, gems: updated.gems });
-  } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Failed to add gems.' });
-  }
-});
+// Administrative Gems endpoint is removed per Priority 2 security requirements.
+// Exceptional Gems adjustments must be performed manually through the Supabase SQL Editor.
 
 
 // Check if world exists and get overview
@@ -1135,15 +861,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           return;
         }
 
-        // Bind verified authoritative identity
-        username = identity.username;
-        playerId = identity.userId;
-        currentRoom = getOrCreateRoom(worldName);
-
-        // Player initial spawn at ground level in front of the spawn door
-        const spawnX = 8 * 52;
-        const spawnY = 25 * 52 - 78;
-
+        // 1. Load authoritative player data BEFORE allowing world entry
         let playerData: PlayerEconomyState;
         try {
           playerData = await loadPlayerData(playerId);
@@ -1156,6 +874,15 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           ws.close(4002, 'Failed to load player data');
           return;
         }
+
+        // 2. Initialize verified session
+        username = identity.username;
+        playerId = identity.userId;
+        currentRoom = getOrCreateRoom(worldName);
+
+        // Player initial spawn at ground level
+        const spawnX = 8 * 52;
+        const spawnY = 25 * 52 - 78;
 
         const activePlayer: ActivePlayer = {
           id: playerId,
@@ -1369,39 +1096,46 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         }
 
         // Deduct from player inventory in database atomically
-        const placeIdempotencyKey = `place_${currentRoom.name}_${tx}_${ty}_${Date.now()}`;
+        const clientReqId = (msg.requestId || '').trim();
+        const idempotencyKey = clientReqId 
+          ? `place_${playerId}_${clientReqId}` 
+          : `place_${currentRoom.name}_${tx}_${ty}_${Date.now()}`;
+        
+        const economyPayload = { tx, ty, blockId, worldName: currentRoom.name };
+        
         try {
-          const updated = await updatePlayerEconomy(playerId, 0, { [blockId]: -1 }, placeIdempotencyKey);
+          const updated = await updatePlayerEconomy(playerId, 'block_place', 0, { [blockId]: -1 }, idempotencyKey, economyPayload);
+          
+          // Publish state ONLY after successful database deduction
           player.gems = updated.gems;
           player.inventory = updated.inventory;
+          currentRoom.tiles[ty][tx] = blockId;
+          currentRoom.dirty = true;
+
+          // Authoritatively sync inventory to placing player
+          ws.send(JSON.stringify({
+            type: 'inventory:sync',
+            inventory: player.inventory,
+            gems: player.gems
+          }));
+
+          // Broadcast block placed to everyone
+          const placeData = JSON.stringify({
+            type: 'block:changed',
+            tx,
+            ty,
+            blockId,
+            placedBy: username,
+            locks: currentRoom.locks,
+            worldOwner: currentRoom.worldOwner
+          });
+          for (const p of currentRoom.players.values()) {
+            if (p.ws.readyState === WebSocket.OPEN) p.ws.send(placeData);
+          }
         } catch (err: any) {
           console.error('Failed to deduct placed block from inventory:', err);
-          ws.send(JSON.stringify({ type: 'notify', text: 'Cannot place block: database deduction failed.' }));
+          ws.send(JSON.stringify({ type: 'notify', text: 'Cannot place block: ' + (err.message || 'database error') }));
           return;
-        }
-
-        currentRoom.tiles[ty][tx] = blockId;
-        currentRoom.dirty = true;
-
-        // Authoritatively sync inventory to placing player
-        ws.send(JSON.stringify({
-          type: 'inventory:sync',
-          inventory: player.inventory,
-          gems: player.gems
-        }));
-
-        // Broadcast block placed to everyone
-        const placeData = JSON.stringify({
-          type: 'block:changed',
-          tx,
-          ty,
-          blockId,
-          placedBy: username,
-          locks: currentRoom.locks,
-          worldOwner: currentRoom.worldOwner
-        });
-        for (const p of currentRoom.players.values()) {
-          if (p.ws.readyState === WebSocket.OPEN) p.ws.send(placeData);
         }
         return;
       }
@@ -1439,9 +1173,15 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           }
 
           // Return lock immediately to that player's inventory
-          const reclaimKey = `reclaim_${lk.id}_${Date.now()}`;
+          const clientReqId = (msg.requestId || '').trim();
+          const reclaimKey = clientReqId 
+            ? `reclaim_${playerId}_${clientReqId}` 
+            : `reclaim_${lk.id}_${Date.now()}`;
+          
+          const reclaimPayload = { lockId: lk.id, lockType: lk.type, worldName: currentRoom.name };
+          
           try {
-            const updated = await updatePlayerEconomy(playerId, 0, { [lk.type]: 1 }, reclaimKey);
+            const updated = await updatePlayerEconomy(playerId, 'reclaim_lock', 0, { [lk.type]: 1 }, reclaimKey, reclaimPayload);
             const p = currentRoom.players.get(playerId);
             if (p) {
               p.gems = updated.gems;
@@ -1564,11 +1304,16 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         // 4. Derive reward deltas exclusively from server-side drop record
         const gemsDelta = drop.itemId === 'gem' ? (drop.value || 1) : 0;
         const inventoryDelta = drop.itemId !== 'gem' ? { [drop.itemId]: drop.count || 1 } : {};
-        const idempotencyKey = `drop_${currentRoom.name}_${drop.id}`;
-
         // 5. Persist reward atomically to authoritative Supabase database
+        const clientReqId = (msg.requestId || '').trim();
+        const idempotencyKey = clientReqId 
+          ? `pickup_${playerId}_${clientReqId}` 
+          : `drop_${currentRoom.name}_${drop.id}`;
+        
+        const pickupPayload = { dropId: drop.id, itemId: drop.itemId, count: drop.count || 1, value: drop.value };
+
         try {
-          const updated = await updatePlayerEconomy(playerId, gemsDelta, inventoryDelta, idempotencyKey);
+          const updated = await updatePlayerEconomy(playerId, 'collect_drop', gemsDelta, inventoryDelta, idempotencyKey, pickupPayload);
 
           // Update in-memory player state from authoritative DB response
           player.gems = updated.gems;

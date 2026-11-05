@@ -1158,7 +1158,8 @@ export default function App() {
         checkEmptySlotRestoration(userInventoryRef.current);
 
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'block:place', tx, ty, blockId }));
+          const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          ws.send(JSON.stringify({ type: 'block:place', tx, ty, blockId, requestId }));
           playTone(480, 0.08, 'triangle');
         }
       }
@@ -1414,13 +1415,14 @@ export default function App() {
                   }
 
                   // Break completed
-                  if (mining.progress >= 1.0) {
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(JSON.stringify({ type: 'block:mine', tx, ty }));
+                    if (mining.progress >= 1.0) {
+                      if (ws.readyState === WebSocket.OPEN) {
+                        const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                        ws.send(JSON.stringify({ type: 'block:mine', tx, ty, requestId }));
+                      }
+                      playTone(280, 0.14, 'sawtooth', 0.2);
+                      mining = null;
                     }
-                    playTone(280, 0.14, 'sawtooth', 0.2);
-                    mining = null;
-                  }
                 }
               } else {
                 mining = null;
@@ -1478,6 +1480,7 @@ export default function App() {
 
             // Tell server drop was collected
             if (ws.readyState === WebSocket.OPEN) {
+              const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
               ws.send(
                 JSON.stringify({
                   type: 'drop:pickup',
@@ -1485,6 +1488,7 @@ export default function App() {
                   itemId: d.itemId,
                   count: d.count || 1,
                   value: d.value,
+                  requestId
                 })
               );
             }
