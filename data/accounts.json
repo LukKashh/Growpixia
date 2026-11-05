@@ -1,0 +1,50 @@
+{
+  "testplayer": {
+    "username": "TestPlayer",
+    "passHash": "667c6911",
+    "gems": 40,
+    "inventory": {
+      "dirt": 20,
+      "stone": 5,
+      "seedPot": 10,
+      "dirtSeed": 5,
+      "small_lock": 3,
+      "medium_lock": 1
+    },
+    "createdAt": 1793392354039,
+    "lastLogin": 1793392356838
+  },
+  "test_vjyqt": {
+    "id": "u_33787498ba68f9d7",
+    "username": "test_vjyqt",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "7c5c0b7f3780c634a5bc89874e62f4e890a79b554d5a82cb112dc1fae00ec9b6",
+    "recoveryRedeemedAt": 1793847823096,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793847822839,
+    "lastLogin": 1793847823104
+  },
+  "pixelknight": {
+    "id": "u_e5668c5e513540ff",
+    "username": "PixelKnight",
+    "passHash": "4dc51428db8f30402994d5f96557733377e54ff0a90c794536eae549dac50161",
+    "recoveryHash": "f623dbbf6b269a5181710a6680acdda12b83b3c7dc9d71876e3e83e89d62f78e",
+    "recoveryRedeemedAt": null,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793847891948,
+    "lastLogin": 1793847891948
+  },
+  "test_yzycj": {
+    "id": "u_41404f19ed683bc3",
+    "username": "test_yzycj",
+    "passHash": "94cd550cfc2c27b346ed533a3e0c4ee714e5cb35fd5b2308c4d8e6df38013b2a",
+    "recoveryHash": "4ddb8b00e5e7d920446cbc62ee460108fdf10ed1755b3ed29985d0264a11dc48",
+    "recoveryRedeemedAt": 1793847965402,
+    "gems": 0,
+    "inventory": {},
+    "createdAt": 1793847965103,
+    "lastLogin": 1793847965411
+  }
+}

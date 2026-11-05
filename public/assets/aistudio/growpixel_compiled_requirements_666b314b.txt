@@ -1,0 +1,136 @@
+GROWPIXEL – COMPILED IMPLEMENTATION REQUIREMENTS
+
+1.  BLOCK BREAKING DURATION & ANIMATION
+
+-   Block breaking is currently almost instantaneous.
+-   Restore a longer breaking duration, similar to the previous
+    implementation.
+-   Display breaking animations throughout the entire breaking process.
+-   The player must hold the interaction on a block until breaking is
+    completed.
+
+2.  BLOCK PLACEMENT – PLAYER POSITION RESET
+
+-   Placing a block currently appears to trigger a world rejoin.
+-   The player is teleported back to the world spawn point.
+-   Block placement must not trigger a world rejoin, respawn, or
+    position reset.
+-   Preserve the player’s current position and world state after
+    placement, apart from the actual block being placed.
+
+3.  SPAWN POINT – GROUND-LEVEL POSITIONING & APPEARANCE
+
+-   The spawn point must be level with the ground and aligned with the
+    ground tile.
+-   Its visual representation should resemble a door.
+-   It should clearly identify the world entrance and designated spawn
+    location.
+
+4.  SPAWN POINT – DEDICATED SYSTEM-GENERATED DOOR BLOCK
+
+-   The spawn point must be implemented as a dedicated, system-generated
+    block type, not an ordinary player-placed block.
+-   Generate it automatically when a new world is created.
+-   It functions as a background block.
+-   Players can pass through it without collision obstruction.
+-   When standing on it, a player can punch it to activate the
+    leave-world functionality.
+-   Its location is predetermined during world generation.
+-   Its location is permanently locked.
+-   No player, regardless of permissions, can break, remove, or replace
+    it.
+-   Its protection must function identically to Bedrock.
+
+5.  FULL-SCREEN TOGGLE – MENU OPTION
+
+-   Add a full-screen toggle option within the in-game menu.
+-   Allow players to switch between full-screen and normal display modes
+    through this menu option.
+-   Make the option readily accessible without requiring external
+    configuration.
+
+6.  TOOLBAR – AUTOMATIC EMPTY SLOT RESTORATION
+
+-   Toolbar slots currently retain item references/icons after those
+    items have been consumed or are no longer in the player’s
+    possession.
+-   Automatically clear a toolbar slot when its item’s quantity reaches
+    zero or the player no longer possesses that item.
+-   Return the slot to its default empty appearance.
+-   Keep the toolbar synchronized with the player’s actual inventory.
+-   Do not leave outdated item icons or references in empty slots.
+
+7.  TOOLBAR – FIXED THREE-SLOT RECENT-ITEM SYSTEM
+
+-   The toolbar must have a fixed capacity of exactly three item slots.
+-   Adding or collecting more items must never increase the number of
+    toolbar slots.
+-   Display the three most recently selected or collected items.
+-   The toolbar is a quick-access system for recently selected/collected
+    items, not an extension of the inventory.
+-   The inventory remains the complete storage system.
+-   When an item is depleted or is no longer in the player’s possession,
+    its toolbar slot must become empty, as described in Requirement 6.
+
+8.  FIST – SEPARATE TOOLBAR CONTROL
+
+-   The Fist must not occupy one of the three toolbar slots.
+-   Display it as a separate control immediately beside the toolbar row.
+-   Keep it independently accessible regardless of which items occupy
+    the toolbar.
+
+9.  TOOLBAR & INVENTORY – ITEM TEXTURE REPRESENTATION
+
+-   Remove numerical slot labels or numbering.
+-   Use the exact texture of the corresponding item or block.
+-   Use the same world-placement texture used to represent that
+    item/block in the game world.
+-   Scale the texture down to fit the available slot diameter.
+-   Apply this visual representation consistently in both the inventory
+    and toolbar.
+-   Preserve the original texture’s appearance when resizing; do not
+    substitute generic icons or alternative artwork.
+
+10. LOCK PLACEMENT – RESTRICTED AREA & OVERLAP HANDLING
+
+-   If the intended lock placement location is already inside an area
+    protected by an existing lock, do not allow another lock to be
+    placed there.
+-   Two locks must never independently claim the same world tiles.
+-   Allow a new lock to be placed near an existing lock when its
+    resulting claim can fit without overlapping.
+-   If the new lock’s originally calculated claim area would overlap an
+    existing protected area, cut off the overlapping portion of the new
+    claim.
+-   The new claim boundary must end at the existing claim’s border,
+    allowing adjacent territories with shared borders but no overlap.
+-   Placing a new lock must never reduce, modify, or overwrite the area
+    belonging to an existing lock.
+
+11. LOCKS – DESTRUCTION PERMISSIONS & INVENTORY RETURN
+
+-   Locks must be breakable; they must not be completely indestructible.
+-   Only the direct/original player who placed a lock may break, remove,
+    or destroy it.
+-   Verify the original placing player’s identity before allowing
+    destruction.
+-   No other player may destroy that lock, regardless of their
+    permissions elsewhere.
+-   When the original owner destroys their lock, return the lock
+    immediately to that same player’s inventory.
+-   The lock must be restored as an available inventory item, not
+    permanently consumed or lost.
+
+IMPORTANT DISTINCTIONS
+
+-   The Spawn Door is a system-generated world object, not an ordinary
+    decorative door texture or player-placed block. It is permanently
+    protected like Bedrock.
+-   Player-placed locks are different: they are protected against
+    unauthorized destruction, but are not indestructible. Only their
+    original placing player can destroy them, and the destroyed lock
+    returns to that player’s inventory.
+-   Lock claims may be adjacent, but must never overlap. An existing
+    claim always retains its full protected area.
+-   The toolbar is limited to three recent-item shortcuts; it is not the
+    player’s inventory.

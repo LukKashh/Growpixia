@@ -1,0 +1,1453 @@
+GROWPIXEL — GOOGLE AI STUDIO NATIVE ANDROID GAME MASTER PROMPT
+BUILD TARGET: ANDROID
+PLATFORM: GOOGLE AI STUDIO BUILD MODE — ANDROID
+LANGUAGE: KOTLIN
+NATIVE UI / RENDERING: JETPACK COMPOSE + CANVAS
+DELIVERABLE: REAL INSTALLABLE ANDROID GAME (APK / AI STUDIO ANDROID BUILD)
+
+================================================================================
+0. NON-NEGOTIABLE PLATFORM REQUIREMENT
+================================================================================
+
+Build GrowPixel DIRECTLY INSIDE GOOGLE AI STUDIO BUILD MODE using the
+ANDROID platform option.
+
+This is a native Android project. It is not a web app.
+
+Use the Android project generator and tools provided by Google AI Studio.
+Generate and maintain a real Kotlin Android application using Jetpack Compose.
+
+The game must run as a native Android application and be previewable in the
+Google AI Studio Android emulator. It must be possible to install the generated
+build on an Android device using the supported AI Studio install workflow, and
+to export/download the Android project source.
+
+DO NOT create:
+- A React app.
+- An HTML/CSS/JavaScript game.
+- A browser game.
+- A website.
+- A PWA.
+- A WebView wrapper.
+- A Capacitor or Cordova app.
+- A website embedded in an Android shell.
+- A Godot project.
+- A Unity project.
+- An Unreal project.
+- A Flutter project.
+- A game that requires a website or remote server to render.
+- A project that merely displays a mockup or screenshot of a game.
+
+Do not use WebView, HTML canvas, JavaScript game engines or browser APIs.
+Do not generate a Godot/Unity project as the primary deliverable.
+Do not instruct the user to leave AI Studio and build the game in another IDE.
+
+The game world must be drawn and updated by native Android/Kotlin code.
+Use Jetpack Compose Canvas for the 2D world renderer and native Compose
+components for overlays, panels and menus. Use Kotlin data models and systems
+for world generation, player physics, collision, mining, inventory, item drops,
+trees, Gems and persistence.
+
+This must be a GAME, not a conventional form-based app with a game picture
+inside it. The user must be able to move a character around a scrolling 2D
+world, mine and place blocks, collect drops, plant seeds, grow trees and harvest.
+
+IMPORTANT GOOGLE AI STUDIO CONSTRAINTS:
+The Android builder uses Kotlin and Jetpack Compose and currently supports a
+single-activity, single-module Android project. Do not introduce Java/XML
+layouts, C/C++ NDK code, native game engine dependencies, multiple Android
+modules, or unsupported build systems. Stay within the Android project shape
+that AI Studio generates. Use Kotlin/Compose capabilities available in that
+project. If a requested implementation exceeds the environment's supported
+capabilities, explain the exact limitation and implement the best native Kotlin
+alternative rather than silently changing the project to a web app.
+
+The AI Studio Android emulator is a preview/testing environment. Do not claim
+the final app has been installed on a physical phone unless that has actually
+been done. Use the available build/preview/install features and report results
+truthfully.
+
+================================================================================
+1. ROLE AND BUILD BEHAVIOUR
+================================================================================
+
+Act as a senior Android game engineer, Kotlin developer, Jetpack Compose
+graphics programmer, 2D game systems designer, pixel-art technical artist,
+mobile UX designer and QA engineer.
+
+Build a complete native Android game project through the AI Studio workspace.
+Create and edit the actual project files in the workspace. Do not merely return
+code snippets or a tutorial.
+
+Use the generated Android project as the source of truth. Maintain the whole
+project context between iterations. Inspect existing files before editing them.
+Preserve working features and existing data. Make targeted changes rather than
+replacing the project wholesale.
+
+Development rules:
+1. Inspect the generated project and understand its actual file structure.
+2. Keep the project compatible with AI Studio's Android build environment.
+3. Implement real working functionality, not placeholder buttons.
+4. Keep rendering, world state, UI state and persistence clearly separated.
+5. Avoid one enormous composable or one giant Kotlin file.
+6. Avoid duplicate state sources.
+7. Use stable IDs for items and blocks.
+8. Use immutable state snapshots or another predictable state approach.
+9. Use Kotlin coroutines/Compose lifecycle APIs where suitable.
+10. Keep expensive world calculations out of composable recomposition.
+11. Use a stable game update loop with delta time.
+12. Never claim a feature is complete if it is only drawn but not interactive.
+13. Do not claim a build succeeded unless AI Studio reports a successful build.
+14. When build errors occur, inspect and fix the actual error, then rebuild.
+15. Do not remove existing features to get a green build.
+
+If a requirement is ambiguous, preserve the mechanics already specified in
+this prompt. Do not invent monetisation, online multiplayer, ads, accounts,
+real-money payments, extra currencies, trading or new gameplay mechanics.
+
+================================================================================
+2. GAME IDENTITY AND TARGET
+================================================================================
+
+Name: GrowPixel
+Subtitle: Pixel Sandbox
+
+Genre:
+- 2D side-view pixel sandbox.
+- Block mining and placement.
+- Physical item pickups.
+- Seed planting and block-themed tree growing.
+- Personal procedurally generated worlds.
+- Offline single-player game.
+
+Target:
+- Android phones.
+- Landscape orientation.
+- Touchscreen-first.
+- Installable native Android application.
+- Offline operation after installation.
+
+Visual inspiration:
+A polished 2D pixel sandbox with the readability and playful feel of classic
+block-building games. Do not copy proprietary sprites, logos, names, characters
+or artwork from existing games.
+
+The game must be visually recognisable as a side-view sandbox:
+- Player stands on terrain.
+- Blocks form horizontal ground and underground layers.
+- Player moves left and right.
+- Camera follows the player.
+- Mining targets are individual grid cells.
+- Blocks, seed pots and trees exist in the world.
+
+Do not turn it into a top-down game, isometric game, card game or menu-driven
+inventory simulator.
+
+================================================================================
+3. NATIVE ANDROID PROJECT ARCHITECTURE
+================================================================================
+
+Use the actual project structure generated by Google AI Studio Android Build.
+Stay inside its single-module, single-activity Kotlin + Compose structure.
+
+A sensible package organisation inside the existing app module could be:
+
+app/src/main/java/<package>/
+    MainActivity.kt
+
+    game/
+        GameRoot.kt
+        GameScreen.kt
+        GameSurface.kt
+        GameLoop.kt
+        GameSession.kt
+        GameState.kt
+        GameConfig.kt
+
+    game/render/
+        WorldRenderer.kt
+        TerrainRenderer.kt
+        PlayerRenderer.kt
+        ObjectRenderer.kt
+        EffectsRenderer.kt
+        PixelArt.kt
+        Camera2D.kt
+
+    game/world/
+        World.kt
+        WorldGenerator.kt
+        WorldTile.kt
+        WorldRepository.kt
+        WorldSeed.kt
+        WorldInteraction.kt
+        MiningSystem.kt
+        PlacementSystem.kt
+
+    game/player/
+        Player.kt
+        PlayerController.kt
+        PlayerPhysics.kt
+        PlayerAnimation.kt
+
+    game/items/
+        ItemId.kt
+        ItemDefinition.kt
+        BlockDefinition.kt
+        SeedDefinition.kt
+        TreeDefinition.kt
+        ItemDatabase.kt
+        Inventory.kt
+        DropSystem.kt
+        DroppedStack.kt
+        GemSystem.kt
+
+    game/objects/
+        SeedPot.kt
+        GrowingTree.kt
+        WorldPickup.kt
+
+    game/persistence/
+        SaveManager.kt
+        SaveModels.kt
+        SaveMigration.kt
+        SettingsRepository.kt
+
+    ui/
+        GameHud.kt
+        Hotbar.kt
+        InventoryPanel.kt
+        GemStorePanel.kt
+        GameMenuPanel.kt
+        WorldSelectionScreen.kt
+        SeedPotInfoPanel.kt
+        TouchControls.kt
+        UiTheme.kt
+
+    audio/
+        GameAudio.kt
+        AudioSettings.kt
+
+    util/
+        DeterministicRandom.kt
+        GridMath.kt
+        TimeSource.kt
+
+This is a recommended logical structure, not a demand to create dozens of
+unnecessary files. The AI Studio Android environment may prefer fewer files.
+Keep related classes together when practical, but maintain clear separation.
+
+Native implementation:
+- MainActivity is the Android entry point.
+- Use Compose for the app root and all panels.
+- Use Canvas or a custom Compose drawing surface for the game world.
+- Use pointerInput / detectDragGestures / awaitEachGesture or suitable
+  Compose pointer APIs for touch interactions.
+- Use a single controlled game loop, for example withLaunchedEffect and
+  frame timing, or an equivalent lifecycle-aware mechanism.
+- Use a stable frame delta and cap unusually large delta values after pause.
+- Use Kotlin data classes for world and item state.
+- Use a deterministic seeded random generator for world generation.
+- Use Android-supported local storage for saves.
+- Keep all gameplay available without network access.
+- Do not add INTERNET permission unless a separately approved feature requires it.
+- Do not use a WebView.
+
+Rendering:
+- Draw world tiles and sprites directly in Compose Canvas.
+- Use ImageBitmap/Bitmap assets with nearest-neighbour sampling where possible.
+- Use native drawing primitives for pixel-art effects only where needed.
+- Avoid drawing every static tile with expensive composable nodes.
+- Render the world in one efficient drawing pass or a small number of passes.
+- Keep UI overlays separate from the world renderer.
+- Do not recompose the whole UI for every tile or every animation pixel.
+- Keep high-frequency game state in a controlled state holder.
+
+Game loop:
+- Update physics and world simulation at a stable cadence.
+- Render at display frame cadence.
+- Use delta-time-based movement and animations.
+- Pause or throttle simulation when app is backgrounded.
+- Resume without losing world state.
+- Avoid launching multiple concurrent game loops after recomposition.
+- Ensure the game loop is disposed when the game screen is removed.
+
+================================================================================
+4. LANDSCAPE DISPLAY AND CAMERA
+================================================================================
+
+Set the Android app orientation to landscape.
+
+Use a game viewport designed around a landscape logical resolution such as
+960 x 540 or another well-tested ratio. Scale it to the actual screen while
+preserving aspect ratio and pixel-art clarity.
+
+Requirements:
+- Respect display cutouts and safe areas.
+- Keep controls away from gesture navigation zones.
+- Keep the player at a readable size.
+- Avoid a camera zoomed too far out.
+- Camera follows the player smoothly.
+- Keep a small amount of space ahead of the player so the user can see where
+  they are moving.
+- Avoid camera jitter.
+- Keep world coordinates separate from screen coordinates.
+- Use a camera transform for rendering and convert screen touches back into
+  world/grid coordinates correctly.
+- The HUD should remain fixed to the screen while the world scrolls.
+- Support common landscape ratios, including 16:9 and tall modern phone ratios.
+- Do not stretch pixel art non-uniformly.
+
+The screen should not be overloaded with permanent labels and panels.
+
+================================================================================
+5. GAME FLOW AND WORLD SELECTION
+================================================================================
+
+When the app opens, show a compact world selection screen.
+
+Actions:
+- Continue the last world if one exists.
+- Select an existing saved world.
+- Create a new world.
+- Enter a world name.
+- Return from the game to world selection through the menu.
+- Save the current world.
+- Avoid accidental overwriting of existing worlds.
+
+World names:
+- Trim whitespace.
+- Limit length sensibly (for example 24 characters).
+- Reject an empty name.
+- Use a deterministic hash of the name as the generation seed.
+- The same name and same generator version produce the same initial terrain.
+- Different names should normally produce different worlds.
+- If the world already exists, offer to load it or explicitly confirm overwrite.
+- Never silently replace a saved world with a newly generated world.
+
+Each world is stored independently.
+
+The save must preserve:
+- World name and seed.
+- Generator version.
+- Modified terrain.
+- Placed blocks and removed blocks.
+- Player position and facing direction.
+- Inventory quantities.
+- Hotbar selection.
+- Gem balance.
+- Any retained coin balance.
+- Dropped item stacks.
+- Seed Pots.
+- Planted seed/tree IDs.
+- Growth timestamps and maturity.
+- Audio and gameplay settings where appropriate.
+- Save schema version.
+
+Use robust local persistence. Prefer DataStore for settings and a suitable
+structured local save file for larger world state, or a carefully designed
+Room database if genuinely needed. Keep the implementation compatible with
+the generated AI Studio Android project. Do not introduce unnecessary Firebase
+or server dependencies.
+
+Save after meaningful world changes and when app lifecycle moves to background.
+Avoid writing the entire save every rendered frame.
+Use versioned save data and graceful corruption handling.
+Never silently reset a world because one field is missing.
+
+================================================================================
+6. WORLD GENERATION AND TERRAIN
+================================================================================
+
+World is a 2D side-view grid.
+
+Terrain requirements:
+- Grass-capped Dirt at the top surface.
+- Grass is only a visual surface texture on Dirt.
+- Grass is NOT a separate inventory item.
+- Dirt appears below the surface.
+- Stone patches/deposits underground.
+- Sand as a standard block type.
+- Lava region deeper in the world.
+- Bedrock boundary at the bottom.
+- Coherent playable terrain.
+- Safe player spawn point.
+- No spawn inside solid terrain.
+- No spawn in Lava or inside an object.
+- No accidental holes or gaps that trap the player.
+
+The generator must use a deterministic random seed.
+Use a clear terrain generation algorithm that can be repeated exactly.
+Persist modifications separately from the base generated world if practical.
+Do not regenerate the world on every screen refresh.
+
+Do not invent additional standard block types.
+Do not add Grass to inventory.
+The catalogue is defined later in this prompt.
+
+================================================================================
+7. PLAYER, PHYSICS AND COLLISION
+================================================================================
+
+Player is a side-view pixel character.
+
+Movement:
+- Horizontal left/right movement.
+- Jump.
+- Gravity.
+- Grounded detection.
+- Solid-block collision.
+- Responsive controls.
+- Character faces movement direction.
+- Character faces the actual punch target.
+- No score display.
+- No health display.
+- No hunger/stamina system.
+
+Use a simple, stable 2D platform physics implementation in Kotlin.
+Use fixed or bounded delta-time integration and collision resolution against
+the tile grid. Ensure the player cannot tunnel through blocks at high speed.
+Keep physics calculations separate from rendering.
+
+Collision rules:
+- Standard solid blocks are collidable.
+- Wood is walk-through/background-style but remains punchable and collectible.
+- Leaves are solid.
+- Seed Pots are walk-through.
+- Bedrock is solid.
+- Lava is treated as a normal solid block for collision and interaction.
+- Do not add lava damage or health mechanics without a separate request.
+
+Touch controls:
+- Large horizontal joystick in lower-left.
+- Place it comfortably away from the extreme screen corner.
+- Joystick knob may move vertically within its control region.
+- Vertical thumb displacement must not cancel horizontal left/right input.
+- Only horizontal joystick component drives horizontal movement.
+- Jump button in lower-right.
+- Support simultaneous joystick and jump touches.
+- Handle multiple pointer IDs correctly.
+- Touch controls must not block hotbar, inventory, menu or world taps.
+- Provide a desktop/test input fallback only if AI Studio preview requires it;
+  Android touch remains the primary control.
+
+The joystick and jump control should look like polished game controls, not
+default Compose buttons.
+
+================================================================================
+8. BLOCK MINING, PUNCHING AND PLACEMENT
+================================================================================
+
+Default tool: Fist.
+Fist is a tool, not a block or seed.
+No pickaxe is given at the start.
+
+Mining:
+- User taps and holds directly on a target tile.
+- Target must be within 3 grid tiles of player.
+- Validate the actual target tile.
+- Show progress on the targeted block.
+- Releasing before completion cancels mining.
+- Moving out of range invalidates mining.
+- Do not mine unrelated tiles.
+- Do not mine through unlimited walls.
+- Player can punch empty air.
+- No separate permanent Mine button.
+- Selected item action should be performed directly by tapping the world.
+
+Punch animation:
+- Directional punch toward actual target.
+- Turn character to face the target, including left.
+- One coherent punch animation only.
+- Do not play a contradictory second horizontal punch.
+- Determined expressive face while punching.
+- Fist stretches toward target.
+- Fist enlarges slightly at impact.
+- Short recoil/return animation.
+- Avoid distorted or awkward poses.
+- Punching empty air is allowed.
+
+Mining feedback:
+- Material-specific impact response.
+- Small pixel particles.
+- Hit flash/shake.
+- Clear mining progress.
+- Short break animation.
+- Do not use oversized effects.
+- Do not obscure the world or UI.
+
+Placement:
+- Select a placeable block from hotbar/inventory.
+- Tap an empty valid tile within reach.
+- Grid snap to tile.
+- Check inventory quantity.
+- Deduct exactly one only after successful placement.
+- Prevent placing inside player collision.
+- Prevent invalid placement outside world boundaries.
+- Seeds are not ordinary placeable blocks.
+- Seed Pot placement is a special item placement action.
+
+Bedrock:
+- Never destroyed.
+- Never removed from world.
+- No block, seed or Gem drops.
+- Mining must never complete.
+- Solid world boundary.
+
+================================================================================
+9. BLOCK CATALOGUE AND EXACT DROP PROBABILITIES
+================================================================================
+
+Standard blocks:
+1. Dirt
+2. Stone
+3. Wood
+4. Leaves
+5. Sand
+6. Lava
+
+Special block:
+7. Seed Pot
+
+Boundary block:
+8. Bedrock
+
+Grass:
+- Surface texture on Dirt only.
+- Not a separate item.
+
+Fist:
+- Default tool.
+- Not a block.
+- Not a seed.
+
+Each standard block has its own block-drop probability and seed-drop
+probability. The two rolls are independent.
+
+Exact values:
+
+DIRT:
+- Dirt block chance: 30%.
+- Dirt Seed chance: 20%.
+
+STONE:
+- Stone block chance: 20%.
+- Stone Seed chance: 12.5%.
+
+WOOD:
+- Wood block chance: 20%.
+- Wood Seed chance: 15%.
+
+LEAVES:
+- Leaves block chance: 15%.
+- Leaves Seed chance: 10%.
+
+SAND:
+- Sand block chance: 20%.
+- Sand Seed chance: 10%.
+
+LAVA:
+- Lava block chance: 20%.
+- Lava Seed chance: 22.5%.
+
+SEED POT:
+- Breakable.
+- Guaranteed return of exactly 1 Seed Pot.
+- Return chance: 100%.
+- Does not behave like Bedrock.
+
+BEDROCK:
+- Unbreakable.
+- No drops of any kind.
+
+Implementation:
+- Store these rates in one central block definition table.
+- Use stable IDs.
+- Store probability as a decimal or percentage consistently.
+- 12.5% and 22.5% must be represented exactly enough for correct rolls.
+- Roll block and seed independently.
+- Both can drop, one can drop or neither can drop.
+- Do not combine or normalise probabilities.
+- Do not invent additional drop amounts.
+- For each successful ordinary block drop, award one matching block.
+- For each successful seed drop, award one matching seed.
+- Use a deterministic/random source suitable for game logic.
+- Provide debug simulation for probability verification, but do not let
+  debug mode alter real gameplay.
+
+================================================================================
+10. GEM SYSTEM
+================================================================================
+
+Gems are a separate in-game currency.
+
+Gem rules:
+- Gems are earned by breaking blocks.
+- Tree harvesting gives no Gems.
+- Gem drops are separate from block and seed drops.
+- There is NO 80% chance.
+- There is NO separate Gem percentage chance.
+- Every breakable block uses the same rule.
+- Every time a breakable block is destroyed, roll a random integer
+  from 0 through 3 inclusive.
+- Possible quantities: 0, 1, 2 or 3.
+- This applies to Dirt, Stone, Wood, Leaves, Sand and Lava.
+- It also applies to breakable Seed Pots.
+- Bedrock is unbreakable and awards no Gems.
+- Tree harvesting awards no Gems.
+
+Gem presentation:
+- If amount is 0, spawn no Gem pickup.
+- If amount is 1, 2 or 3, spawn a Gem pickup stack in the world.
+- Gem pickup is visually distinct from blocks and seeds.
+- Gem pickup floats/bounces slightly.
+- Display quantity where useful.
+- Player collects Gems by walking over the pickup.
+- Only increase balance when the pickup is collected.
+- Never award twice.
+- Persist uncollected Gem stacks.
+- Persist Gem balance.
+
+Keep Gems separate from any existing Coins field.
+Do not exchange Gems for Coins.
+Do not invent exchange rates or real-money purchases.
+
+Gem Store:
+- Opened by the top-left banner button.
+- Banner must clearly say GEM STORE.
+- Use the same compact framed style as the previous GrowPixel banner.
+- Entire banner is clickable.
+- Show current Gem balance.
+- Catalogue and products have not yet been defined.
+- Do not invent offers, prices, boosts, skins or upgrades.
+- Until the owner defines products, show a polished empty state:
+  “The Gem Store is being prepared.”
+- Include a clear close/back action.
+- Opening the store must not reset or pause-save incorrectly.
+
+================================================================================
+11. SEEDS, SEED POTS AND TREES
+================================================================================
+
+Six seeds:
+1. Dirt Seed
+2. Stone Seed
+3. Wood Seed
+4. Leaves Seed
+5. Sand Seed
+6. Lava Seed
+
+New world:
+- Start with exactly 10 Seed Pots in inventory.
+- Grant these once on new world creation.
+- Do not grant another 10 on every reload.
+- Migrate older saves carefully if Seed Pot inventory is missing.
+
+Seed Pot:
+- Placeable special block.
+- Walk-through; no solid player collision.
+- Transparent background.
+- Draw only pot body, soil and legs.
+- World behind transparent regions remains visible.
+- Artwork should look grounded.
+- Pot legs should be positioned naturally.
+- Pot is breakable.
+- Breaking it returns exactly one Seed Pot.
+- The pot is removed from world and added to inventory.
+- It can be placed again.
+
+Planting:
+- Seeds can only be planted inside an empty Seed Pot.
+- Cannot plant on ordinary ground.
+- Cannot plant in an occupied/growing/mature pot.
+- Planting consumes exactly one seed.
+- Every seed is one-time use.
+- One seed creates one tree and one harvest cycle.
+- Seed is never returned after planting or harvest.
+- Prevent double consumption from rapid taps.
+- Prevent simultaneous planting in one pot.
+
+Growth:
+- Every tree grows for exactly 30 seconds.
+- Timer starts when seed is planted.
+- Sprout grows into a block-themed tree.
+- Tree remains visually anchored to the pot.
+- Tree should not float above the pot.
+- Use growth stages/animation.
+- Mature tree stays in pot until harvested.
+- Growth state persists across app closure and reload.
+- Save planting timestamp.
+- On reload calculate remaining growth time.
+- No watering, fertiliser or unrequested mechanics.
+
+Pot interaction:
+- When approaching/interacting with a pot, show planted seed/tree name.
+- While growing, show remaining time in seconds.
+- When mature, show READY TO HARVEST.
+- Do not use pop-up toast notifications for routine events.
+- Use a compact contextual information panel or anchored interaction label.
+
+Harvest:
+- One tap on a mature tree harvests it.
+- No hold-to-mine.
+- Harvest only once.
+- Grant random integer quantity in the configured range.
+- Tree disappears.
+- Empty Seed Pot remains.
+- Pot can be replanted.
+- No seed return.
+- No Gem award.
+- No duplicate harvest from repeated taps.
+
+Exact tree values:
+
+DIRT TREE:
+- Growth: 30 seconds.
+- Yield: 2–6 Dirt blocks inclusive.
+
+STONE TREE:
+- Growth: 30 seconds.
+- Yield: 1–3 Stone blocks inclusive.
+
+WOOD TREE:
+- Growth: 30 seconds.
+- Yield: 1–3 Wood blocks inclusive.
+
+LEAVES TREE:
+- Growth: 30 seconds.
+- Yield: 2–7 Leaves blocks inclusive.
+
+SAND TREE:
+- Growth: 30 seconds.
+- Yield: 2–5 Sand blocks inclusive.
+
+LAVA TREE:
+- Growth: 30 seconds.
+- Yield: 1–5 Lava blocks inclusive.
+
+Tree art:
+- Each tree is themed after its corresponding block.
+- Small sprout, intermediate growth and mature tree.
+- Mature tree must still look like a tree.
+- May include fruit-like framed matching block icons.
+- Keep it anchored to pot.
+- Do not obscure player or controls.
+
+================================================================================
+12. DROPS AND COLLECTION
+================================================================================
+
+Block, seed and Gem drops are physical world pickups.
+
+- Spawn near the block that produced them.
+- Small bounce/float animation.
+- Do not fall through terrain.
+- Remain until collected or removed by an explicitly defined rule.
+- Player collects by walking over them.
+- Update correct inventory/currency.
+- Never collect twice.
+- Persist uncollected drops.
+- Save stack quantities and positions.
+
+Stacking:
+- Merge identical item types that appear at the same/nearby position.
+- Show quantity label.
+- Collect entire stack on contact.
+- Never merge different item IDs.
+- Avoid dozens of individual pickup nodes when a stack can be used.
+- Keep quantity text readable.
+
+Inventory:
+- Quantities keyed by stable item ID.
+- Distinguish blocks, seeds, Seed Pots, Gems and tools.
+- Fist is always accessible.
+- No Grass inventory.
+- Persist inventory and selection.
+- No negative quantities.
+- If selected item reaches zero, choose a valid fallback (normally Fist).
+
+================================================================================
+13. EXACT HUD LAYOUT AND UI
+================================================================================
+
+The HUD must be compact and easy to understand.
+Do not show everything at once.
+Do not use oversized panels.
+Use native Compose UI elements for menus and overlays.
+Draw the game world underneath.
+
+TOP-LEFT:
+- A compact banner, same style/footprint as the old GrowPixel top-left
+  branding banner.
+- It is a button, not a static logo.
+- Label it GEM STORE.
+- It opens the Gem Store panel.
+- Optionally show a Gem icon and balance.
+- Do not retain the old static “GROWPIXEL SANDBOX” banner behaviour.
+
+TOP-RIGHT:
+- Keep a compact Menu button.
+- Remove the World status/World indicator pill.
+- Remove the Bag button from top-right.
+- Do not show a persistent World ID indicator.
+
+BOTTOM-CENTRE HOTBAR:
+- Centred near bottom.
+- Slot 1 is Fist.
+- Normal item slots follow.
+- SLOT 4 IS ALWAYS INVENTORY.
+- Slot 4 is a dedicated Inventory action, not a normal stack.
+- Pressing slot 4 opens Inventory.
+- Inventory must never slide to another position when item slots are empty.
+- Do not show a separate Bag button elsewhere.
+
+LOWER-LEFT:
+- Large horizontal joystick.
+
+LOWER-RIGHT:
+- Jump button.
+
+MENU:
+- Compact overlay.
+- Save world.
+- World selection / new world action.
+- Sound effects toggle.
+- Music toggle.
+- Display/fullscreen behaviour if relevant.
+- Do not put Save/New World controls permanently on HUD.
+- No score/health display.
+
+INVENTORY:
+- Open from hotbar slot four.
+- Compact overlay/panel.
+- Show owned items and quantities.
+- Select item for hotbar.
+- Select seed for planting.
+- Fist accessible.
+- Clear close/back.
+- Do not unnecessarily cover whole screen.
+
+GEM STORE:
+- Open from top-left banner.
+- Show Gem balance.
+- No invented catalogue.
+- Show “The Gem Store is being prepared.”
+- Clear close/back.
+
+SEED POT CONTEXT:
+- Compact anchored info panel.
+- Seed/tree name.
+- Remaining growth time.
+- Ready-to-harvest status.
+- No routine toast popups.
+
+Visual quality:
+- Dark compact framed UI matching GrowPixel visual direction.
+- Green accents and warm neutral details.
+- Pixel-art icons.
+- Readable text.
+- Large touch hit targets.
+- Pressed state feedback.
+- Consistent margins and spacing.
+- Use safe areas.
+- Never cover joystick/jump controls with panels.
+- Support common landscape aspect ratios.
+
+================================================================================
+14. PIXEL ART ASSET SYSTEM
+================================================================================
+
+Create a consistent pixel-art asset set bundled inside the Android app.
+
+Required art:
+- Dirt tile.
+- Stone tile.
+- Wood tile.
+- Leaves tile.
+- Sand tile.
+- Lava tile.
+- Bedrock tile.
+- Grass surface overlay.
+- Seed Pot.
+- Six seed icons.
+- Six tree types with growth stages.
+- Player sprite states.
+- Fist icon.
+- Gem icon.
+- Item pickup icons.
+- UI icons and panels.
+- Mining fragments/particles.
+- Background/sky.
+
+Do not use flat colour squares as final textures.
+Do not use external URLs at runtime.
+All game art must be local resources or generated locally in Kotlin.
+
+Pixel-art requirements:
+- Crisp nearest-neighbour appearance.
+- Consistent pixel scale.
+- Distinct material palettes and patterns.
+- Seamless terrain tile edges.
+- No strong black outline around every terrain tile.
+- Dirt surface grass only at exposed top tiles.
+- Wood grain visible.
+- Leaves visually leafy.
+- Sand granular.
+- Lava molten and distinctive without overwhelming glow.
+- Bedrock clearly distinct.
+- Seed Pot transparent around visible body/soil/legs.
+- Seed icons related to their block type but visually distinct.
+- Gem icon recognisable at small size.
+
+If no external image generation resource is available, create a small procedural
+pixel-art generation system in Kotlin that generates actual Bitmap/ImageBitmap
+assets with material-specific patterns. Do not generate one generic noise
+texture for every block.
+
+Use Bitmap filtering configured for pixel art. Avoid blurry interpolation.
+Cache generated images. Do not recreate bitmaps every frame.
+Use sprite sheets/atlases if useful.
+
+================================================================================
+15. ANIMATION AND GAME FEEL
+================================================================================
+
+Player:
+- Idle.
+- Walk/run.
+- Jump.
+- Fall.
+- Directional punch.
+- Determined expression during punch.
+- Fist extension and impact scale.
+- Return to idle.
+
+Blocks:
+- Mining progress.
+- Hit flash/shake.
+- Material-specific fragments.
+- Break effect.
+
+Drops:
+- Bounce/float.
+- Quantity label.
+- Collection effect.
+
+Trees:
+- Sprout.
+- Growth.
+- Mature.
+- One-tap harvest.
+- Empty pot after harvest.
+
+UI:
+- Short panel open/close.
+- Press feedback.
+- No excessive animations.
+- No large popups.
+
+Keep all animations performant on mid-range Android devices.
+
+================================================================================
+16. AUDIO
+================================================================================
+
+All audio must be bundled locally. No network dependency.
+
+Material effects:
+- Dirt: soft earthy thud.
+- Stone: harder crack.
+- Wood: deeper wooden impact.
+- Leaves: light rustle.
+- Sand: granular sound.
+- Lava: muted molten/rock impact.
+- Seed Pot: pot/soil break.
+- Pickup: small collection sound.
+- Planting: subtle planting sound.
+- Harvest: short reward sound.
+- UI: restrained click.
+
+Settings:
+- Separate sound effects toggle.
+- Separate music toggle.
+- Save preferences locally.
+- Respect Android audio focus/lifecycle where practical.
+- Start audio after first user interaction if required.
+- No copyrighted music.
+- Do not use unlicensed third-party sound assets.
+
+If suitable audio assets are not available, create original simple sound effects
+or clearly document placeholder asset slots without claiming finished audio.
+
+================================================================================
+17. SAVE AND DATA MODEL
+================================================================================
+
+Use stable IDs, not display names, for game logic.
+
+IDs:
+dirt
+stone
+wood
+leaves
+sand
+lava
+seed_pot
+bedrock
+dirt_seed
+stone_seed
+wood_seed
+leaves_seed
+sand_seed
+lava_seed
+gem
+fist
+
+Block definitions should include:
+- ID.
+- Display name.
+- Texture reference.
+- Solid collision flag.
+- Breakable flag.
+- Block drop chance.
+- Seed drop chance.
+- Associated seed ID.
+- Mining effect.
+- Break effect.
+- Sound.
+
+Seed definitions:
+- ID.
+- Display name.
+- Associated block ID.
+- Tree ID.
+- Icon.
+- One-time-use true.
+
+Tree definitions:
+- ID.
+- Display name.
+- Seed ID.
+- Harvested block ID.
+- Growth seconds.
+- Minimum yield.
+- Maximum yield.
+- Growth art reference.
+- Mature art reference.
+
+World save:
+- Schema version.
+- World name.
+- Seed.
+- Generator version.
+- Modified tiles.
+- Placed objects.
+- Seed Pot states.
+- Dropped stacks.
+- Player state.
+- Inventory.
+- Hotbar.
+- Gem balance.
+- Coin balance only if retained.
+- Audio settings.
+
+Use a safe save process. Validate all loaded fields.
+Handle missing/corrupt save gracefully.
+Never silently wipe a world.
+Keep a backup or last-known-good save if practical.
+Do not write saves every frame.
+
+================================================================================
+18. PERFORMANCE AND ROBUSTNESS
+================================================================================
+
+- Render visible tiles only where practical.
+- Cache tile/sprite bitmaps.
+- Avoid a Compose node per world tile.
+- Use Canvas drawing for the world.
+- Keep UI composition separate from game simulation.
+- Use a single game loop.
+- Avoid multiple loops after recomposition.
+- Avoid blocking the main thread.
+- Use bounded delta time.
+- Pause simulation when app is backgrounded.
+- Resume safely.
+- Do not perform JSON serialisation every frame.
+- Do not allocate large objects every rendered frame.
+- Avoid unnecessary dependencies.
+- Avoid network access.
+- Avoid analytics, ads and trackers.
+- No crash on empty inventory.
+- No crash on missing save.
+- No crash on invalid tap.
+- No duplicate mining completion.
+- No duplicate tree harvest.
+- No duplicate Gem pickup.
+- No repeated seed consumption.
+- No lost world state after app pause/resume.
+
+================================================================================
+19. TEST PLAN AND ACCEPTANCE CRITERIA
+================================================================================
+
+Do not call the game complete until these are checked.
+
+PROJECT:
+- Native Android project generated in AI Studio Android mode.
+- Kotlin + Compose.
+- No HTML, JavaScript, WebView or browser game runtime.
+- App launches in Android emulator.
+- No unresolved build errors.
+
+WORLD:
+- Create named world.
+- Same name generates same initial terrain.
+- Different names can generate different terrain.
+- Load existing world.
+- Save modified world.
+- Correct terrain layers.
+- Grass is not an inventory item.
+- Bedrock bottom boundary.
+- Safe spawn.
+
+PLAYER:
+- Left/right works.
+- Jump works.
+- Collision works.
+- Camera follows.
+- Wood walk-through.
+- Seed Pot walk-through.
+- Leaves solid.
+- Touch movement/jump simultaneous.
+- Joystick vertical thumb offset does not cancel horizontal movement.
+
+MINING:
+- Fist starts selected.
+- Tap-hold target block.
+- Range is 3 tiles.
+- Release cancels incomplete mining.
+- Correct directional punch.
+- Empty air punch.
+- Bedrock indestructible.
+- Placement consumes item only on success.
+
+DROP PROBABILITIES:
+Dirt: 30% block / 20% seed.
+Stone: 20% block / 12.5% seed.
+Wood: 20% block / 15% seed.
+Leaves: 15% block / 10% seed.
+Sand: 20% block / 10% seed.
+Lava: 20% block / 22.5% seed.
+Seed Pot: guaranteed return of 1.
+Bedrock: unbreakable.
+
+Block and seed rolls must be independent.
+Provide a debug statistical test using enough trials to demonstrate the rates.
+
+GEMS:
+- Every breakable block rolls 0–3 inclusive.
+- No percentage chance.
+- Zero means no Gem pickup.
+- Positive amount spawns pickup.
+- Walk over to collect.
+- Balance increments once.
+- Save/reload balance.
+- Tree harvest awards no Gems.
+- Bedrock awards none.
+
+TREES:
+- New world has 10 Seed Pots once.
+- Pot walk-through and breakable.
+- Breaking returns one.
+- Plant only inside empty pot.
+- One-time seed use.
+- Six seed types.
+- Every tree grows 30 seconds.
+- Persist growth across app close.
+- Exact harvest ranges:
+  Dirt 2–6
+  Stone 1–3
+  Wood 1–3
+  Leaves 2–7
+  Sand 2–5
+  Lava 1–5
+- One-tap harvest.
+- Harvest once.
+- Tree disappears.
+- Pot remains.
+- No Gem reward.
+
+UI:
+- Top-left Gem Store banner opens store.
+- No World indicator pill top-right.
+- No Bag button top-right.
+- Fourth hotbar slot always opens Inventory.
+- Menu remains accessible.
+- No score or health.
+- No routine toast popups.
+- UI readable in landscape.
+
+PERSISTENCE:
+- World changes.
+- Player position.
+- Inventory.
+- Gem balance.
+- Dropped stacks.
+- Seed Pots.
+- Tree growth.
+- Settings.
+- Multiple worlds.
+
+ANDROID:
+- AI Studio Android emulator runs app.
+- Install workflow is available.
+- Game works offline.
+- Landscape.
+- Touch works.
+- Background/resume preserves state.
+- No WebView.
+
+================================================================================
+20. BUILD MILESTONES
+================================================================================
+
+Build in stages. Every stage should remain runnable.
+
+MILESTONE 1 — NATIVE ANDROID FOUNDATION
+- Use AI Studio Android platform.
+- Create Kotlin/Compose project.
+- Configure landscape.
+- Create MainActivity and Compose root.
+- Create game screen with Canvas surface.
+- Create simple world grid and player placeholder.
+- Ensure emulator preview works.
+- Confirm no web technologies.
+
+MILESTONE 2 — WORLD RENDERER AND PLAYER
+- Add world grid.
+- Add deterministic terrain.
+- Add player movement/physics.
+- Add camera.
+- Add joystick and jump.
+- Verify screen scaling.
+
+MILESTONE 3 — MINING AND PLACEMENT
+- Add block targeting.
+- Add punch.
+- Add hold mining.
+- Add break feedback.
+- Add block placement.
+- Add collision rules.
+
+MILESTONE 4 — ITEMS AND INVENTORY
+- Add item database.
+- Add block and seed rolls.
+- Add drops and stack merging.
+- Add pickup collection.
+- Add inventory.
+- Add hotbar with fixed fourth Inventory slot.
+- Add starting 10 Seed Pots.
+
+MILESTONE 5 — SEED POTS AND TREES
+- Add transparent pot art.
+- Add six seeds.
+- Add planting.
+- Add 30-second growth.
+- Add growth persistence.
+- Add six trees and yields.
+- Add one-tap harvest.
+
+MILESTONE 6 — GEM SYSTEM
+- Add 0–3 Gem roll on every breakable block.
+- Add Gem pickup.
+- Add Gem balance persistence.
+- Add Gem Store banner and panel.
+- Do not invent catalogue.
+
+MILESTONE 7 — UI AND PIXEL ART POLISH
+- Replace placeholders with coherent pixel art.
+- Add player animations.
+- Add tree art.
+- Add UI style.
+- Add contextual pot information.
+- Remove debug overlays.
+
+MILESTONE 8 — AUDIO AND SAVE HARDENING
+- Add material-specific sounds.
+- Add music/SFX toggles.
+- Add save versioning and migrations.
+- Test multiple worlds.
+- Test pause/resume.
+- Test reload of growth timers and pickups.
+
+MILESTONE 9 — ANDROID BUILD AND DEVICE TEST
+- Use AI Studio's native Android build/preview.
+- Fix all build errors.
+- Test emulator.
+- Use AI Studio's supported install-on-device workflow if available.
+- Verify landscape and touch on physical Android device when possible.
+- Report exactly what has and has not been tested.
+
+Do not skip foundational milestones.
+Do not create fake UI for later milestones and call them implemented.
+
+================================================================================
+21. GOOGLE AI STUDIO WORKSPACE REQUIREMENTS
+================================================================================
+
+Use the Android platform selection in Google AI Studio Build mode.
+Do not use the default Web platform.
+
+The Android agent should create and manage the Android project files directly
+in the workspace.
+
+Use the built-in Android emulator preview to test each milestone.
+Use the Code view to inspect generated Kotlin files and project configuration.
+Use the workspace's supported Android build/install features.
+Do not assume unsupported terminal commands or SDK access.
+Do not fabricate successful Gradle output.
+If a build fails, read the error and fix the actual source/configuration.
+
+If AI Studio has an available image generation tool, use it to create original
+pixel-art asset sheets or individual game sprites. Import the resulting image
+assets into the Android project as local resources. Do not rely on image URLs
+at runtime. If image generation is not available, create local procedural
+pixel art in Kotlin and keep it visually consistent.
+
+If AI Studio offers code execution, terminal, file creation or project tools,
+use only what is actually available. Never claim to have used a tool that is
+not present.
+
+The Android project must remain within AI Studio's supported project shape:
+- Kotlin.
+- Jetpack Compose.
+- Single activity.
+- Single app module.
+- No NDK/C++.
+- No web runtime.
+
+If the AI Studio Android builder has a limitation, state it and work around it
+within supported native Kotlin/Compose capabilities. Do not switch platforms.
+
+================================================================================
+22. REQUIRED PROJECT OUTPUT
+================================================================================
+
+Create and maintain the real Android project in the AI Studio workspace.
+
+Required:
+- Working Kotlin source files.
+- Compose game screen.
+- Native Canvas world renderer.
+- Game loop.
+- World and player systems.
+- Touch controls.
+- Mining/placement.
+- Item database.
+- Drop system.
+- Gem system.
+- Seed Pot/tree system.
+- Inventory and hotbar.
+- Gem Store UI.
+- World selection.
+- Save/load.
+- Local assets.
+- App icon.
+- App name GrowPixel.
+- Landscape configuration.
+- A project README.
+- A concise test checklist.
+
+Do not merely write a long explanation.
+Do not output pseudocode in place of implementation.
+Do not leave essential functions empty.
+Do not leave visible buttons non-functional.
+Do not claim an APK is available until AI Studio's Android build process
+has produced a real Android build.
+
+Use the workspace's native Android build and preview controls.
+If the user asks for an installable build, explain the AI Studio-supported
+install method and use it if available.
+
+================================================================================
+23. FUTURE CHANGE RULES
+================================================================================
+
+All future updates must preserve these decisions unless the owner explicitly
+changes them:
+
+- Project stays native Android Kotlin + Jetpack Compose in Google AI Studio.
+- Never convert to a web app.
+- Never add WebView.
+- Never migrate to Godot/Unity/Flutter.
+- Landscape side-view 2D sandbox.
+- Exact six standard block types.
+- Grass is only a Dirt surface texture.
+- Independent block and seed drop probabilities.
+- Seed Pot break returns exactly one.
+- Bedrock indestructible.
+- Every breakable block rolls 0–3 Gems.
+- No Gem percentage chance.
+- Tree harvesting gives no Gems.
+- Six seeds and six corresponding trees.
+- All trees grow in 30 seconds.
+- Exact tree yields remain unchanged.
+- Every seed is single-use.
+- Fourth hotbar slot is Inventory.
+- Top-left banner is Gem Store.
+- Remove World indicator top-right.
+- Remove Bag button top-right.
+- No score or health display.
+- No routine pop-up notifications.
+- Local offline saves.
+- No invented Gem Store products/prices.
+- No unrequested monetisation or multiplayer.
+
+================================================================================
+24. FIRST ACTION — START BUILDING THE REAL GAME IN AI STUDIO
+================================================================================
+
+Start now in the currently selected Google AI Studio ANDROID project.
+
+Do not answer with a plan only. Create the project files and implement the
+first runnable milestone.
+
+First implementation:
+1. Confirm this is the Android platform, not Web.
+2. Inspect the generated Kotlin/Compose project.
+3. Set landscape orientation in the Android manifest/project configuration
+   supported by the generated project.
+4. Create the native Compose game root.
+5. Create a Canvas-based side-view world renderer.
+6. Draw a small deterministic tile world using placeholder pixel-art tiles.
+7. Draw a player character in the world.
+8. Implement horizontal movement and jumping with collision.
+9. Add a camera that follows the player.
+10. Add a large joystick and jump button.
+11. Add the top-left GEM STORE banner button.
+12. Add the top-right Menu button only; no World status pill and no Bag button.
+13. Add a bottom-centred hotbar with slot 1 Fist and slot 4 permanently
+    reserved for Inventory.
+14. Make the Inventory slot open a native Compose panel.
+15. Make Gem Store open a native Compose panel showing the balance and
+    “The Gem Store is being prepared.”
+16. Add central item/block definitions with the exact configured rates.
+17. Run the AI Studio Android preview/build and fix actual errors.
+
+The first milestone must be playable in the Android emulator:
+- The player moves left and right.
+- The player jumps.
+- The camera follows.
+- The HUD buttons work.
+- Inventory and Gem Store panels open and close.
+
+After completing it, report:
+- Actual files created/modified.
+- Whether Android build/preview succeeded.
+- Which interactions were tested.
+- Any known bugs.
+- Next milestone.
+
+Do not create a web app.
+Do not create an HTML prototype.
+Do not create a WebView wrapper.
+Build GrowPixel as a native Android game directly in Google AI Studio.

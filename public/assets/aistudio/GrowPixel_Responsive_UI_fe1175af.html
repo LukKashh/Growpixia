@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>GrowPixel — Pixel Sandbox Prototype</title>
+<style>
+:root{--ink:#edf5f2;--panel:rgba(12,23,31,.91);--panel2:#152630;--line:#344d59;--muted:#9bb0b8;--mint:#9be27d;--gold:#ffd77a;--shadow:0 12px 34px #0005}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101c29;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none}button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#game{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100dvh;min-height:100%;image-rendering:pixelated;outline:none;background:linear-gradient(#73c9ee 0%,#b4e4e7 45%,#e4e5c0 100%)}
+#topbar{position:fixed;top:12px;left:12px;right:12px;display:flex;align-items:center;justify-content:flex-start;gap:8px;pointer-events:none}
+.brand,.action,.iconbtn{background:var(--panel);border:1px solid #47616c;border-radius:12px;box-shadow:0 4px 0 #07111a55;backdrop-filter:blur(12px)}
+.brand{display:flex;align-items:center;gap:10px;padding:8px 15px;font-weight:900;letter-spacing:1px;font-size:13px;pointer-events:auto;color:#f5f0d9;text-shadow:1px 2px #080d10;min-height:48px}.brand .mark{display:grid;place-items:center;width:29px;height:29px;background:linear-gradient(145deg,#b9f58a,#74b94f);color:#244128;border-radius:7px;font-size:19px;box-shadow:inset -3px -3px #4d8c4a,0 1px 0 #e2ffc2}.brand .gem-store-label{color:#f5edcb;white-space:nowrap}.brand .gem-mark{color:#f7ffbb;font-size:23px;text-shadow:0 0 7px #a9f8ff}.brand .gem-total{margin-left:2px;padding:3px 7px;border-radius:7px;background:#101c20;border:1px solid #677b65;color:#b9f58a;font-size:12px;letter-spacing:.3px;min-width:22px;text-align:center}.brand:active{transform:translateY(1px)}
+#actions{position:fixed;top:66px;right:12px;display:flex;gap:6px;pointer-events:auto}.action,.iconbtn{color:#f4f8f6;font-weight:750;padding:8px 11px;font-size:11px;transition:transform .12s,border-color .12s,background .12s}.action:hover,.iconbtn:hover{border-color:var(--mint);background:#1b343b}.action:active,.iconbtn:active{transform:translateY(1px)}.action.primary{background:#9be27d;color:#173022;border-color:#b7f39e}
+#hint{display:none!important}#hint strong{display:block;color:#f3f8f4;font-size:10px;margin-bottom:2px;letter-spacing:.5px}
+#hotbar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:5px;padding:7px;background:var(--panel);border:1px solid #47616c;border-radius:14px;width:max-content;max-width:calc(100vw - 20px);overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;box-shadow:var(--shadow);backdrop-filter:blur(12px)}#hotbar::-webkit-scrollbar{display:none}#hotbar .slot{flex-shrink:0}#hotbar .inventory-slot{order:-1;position:sticky;left:0;z-index:2}
+.slot{position:relative;width:53px;height:56px;flex:0 0 53px;border:1px solid #3c5661;border-radius:9px;background:#192d37;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#e7f0ed;font-size:9px;font-weight:800;gap:2px;transition:transform .12s,border-color .12s,background .12s}.slot:hover{background:#213b43}.slot.active{border:1px solid var(--gold);box-shadow:0 0 0 1px #ffd77a55,inset 0 0 18px #ffd77a0c;background:#30413f;transform:translateY(-3px)}.swatch{width:22px;height:22px;border:1px solid #ffffff55;image-rendering:pixelated;box-shadow:inset -4px -4px #0003}.count{position:absolute;right:5px;top:3px;font-size:10px;color:#fff;text-shadow:1px 1px #000}.key{position:absolute;left:5px;top:3px;color:#8fa6ad;font-size:8px}.fist-icon{font-size:27px;line-height:27px;filter:drop-shadow(1px 2px #0008)}.slot.fist-slot{background:#273b3e;border-color:#86b99a}.slot.inventory-slot{background:linear-gradient(145deg,#33453b,#1b2c30);border-color:#7c9e7d;color:#e4f2d7}.slot.inventory-slot .bag-icon{font-size:25px;line-height:27px;color:#b8e58e;text-shadow:1px 2px #0c1712}.slot.empty-slot{opacity:.2;border-style:dashed;cursor:default}.empty-inventory{padding:24px 12px;text-align:center;border:1px dashed #3b5660;border-radius:12px;color:#c4d4d8}.empty-inventory span{display:block;font-size:30px;color:#9be27d}.empty-inventory strong{display:block;margin:8px 0;color:#f0f6f2}.empty-inventory p{font-size:12px;line-height:1.5;margin:0}
+#mobile{display:none;position:fixed;bottom:calc(28px + env(safe-area-inset-bottom));left:34px;right:26px;justify-content:space-between;align-items:center;pointer-events:none;z-index:5}.pad{display:flex;gap:10px;pointer-events:auto;align-items:flex-end}.mbtn{width:64px;height:64px;border-radius:50%;border:2px solid #9bb3bb;background:#10222bdc;color:white;font-size:24px;font-weight:900;box-shadow:0 5px 0 #07111a88;touch-action:none;backdrop-filter:blur(8px);user-select:none;-webkit-user-select:none}.mbtn.small{width:58px;height:54px;border-radius:16px;font-size:12px;letter-spacing:.4px}.mbtn.jump{width:84px;height:84px;font-size:32px;background:#294a3cdd;border-color:#b2f18e}.mbtn:active{background:#31504d;transform:translateY(2px)}
+#orientationGate{position:fixed;inset:0;z-index:100;background:#0c1720;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}#orientationGate.hidden{display:none}.gate-card{width:min(360px,100%);padding:28px 22px;border:1px solid #47616c;border-radius:22px;background:#13232d;box-shadow:0 20px 60px #0008}.gate-icon{font-size:48px;color:var(--mint)}.gate-card h1{font-size:24px;letter-spacing:2px;margin:8px 0}.gate-card p{color:#c4d4d8;line-height:1.5;font-size:14px}.gate-card small{display:block;color:var(--muted);margin-top:14px;font-size:11px}.joystick{width:208px;height:112px;border-radius:40px;border:2px solid #9bb3bb;background:#10222bdc;display:flex;align-items:center;justify-content:center;touch-action:none;pointer-events:auto;box-shadow:0 5px 0 #07111a88;position:relative}.joystick:before{content:'◀';position:absolute;left:13px;color:#b9cbd0;font-size:17px}.joystick:after{content:'▶';position:absolute;right:13px;color:#b9cbd0;font-size:17px}.joyknob{width:66px;height:66px;border-radius:50%;background:#9be27d;border:2px solid #d4ffbf;box-shadow:inset -4px -4px #4d8c4a;z-index:1;pointer-events:none;transform:translateX(0)}@media(orientation:landscape) and (pointer:coarse){#mobile{display:flex}}
+/* Portrait layout: compact controls at the lower corners, toolbar above them, no overlap. */
+@media(orientation:portrait){
+ #topbar{top:calc(7px + env(safe-area-inset-top));left:8px;right:8px;gap:5px;z-index:6}
+ .brand{min-height:39px;padding:5px 8px;gap:6px;font-size:10px}.brand .mark{width:22px;height:22px;font-size:15px}.brand .gem-mark{font-size:18px}.brand .gem-total{font-size:10px;padding:2px 5px}
+ #actions{top:calc(7px + env(safe-area-inset-top));right:8px;z-index:6}#actions .action{padding:7px 9px;font-size:10px}
+ #mobile{display:flex;left:10px;right:10px;bottom:calc(9px + env(safe-area-inset-bottom));align-items:flex-end;z-index:7;pointer-events:none}
+ .pad{pointer-events:auto}.joystick{width:126px;height:76px;border-radius:25px}.joyknob{width:45px;height:45px}.joystick:before{left:9px;font-size:13px}.joystick:after{right:9px;font-size:13px}
+ .mbtn.jump{width:62px;height:62px;font-size:25px}.mbtn{width:52px;height:52px;font-size:20px}
+ #hotbar{bottom:calc(91px + env(safe-area-inset-bottom));left:8px;right:8px;transform:none;width:auto;max-width:none;justify-content:flex-start;gap:3px;padding:4px;border-radius:10px}
+ .slot{width:42px;height:45px;flex-basis:42px;font-size:7px;gap:1px;border-radius:7px}.slot .key{font-size:7px;left:3px;top:2px}.slot .count{font-size:8px;right:3px;top:2px}.slot .bag-icon{font-size:21px!important;line-height:22px!important}.fist-icon{font-size:22px;line-height:22px}.slot .item-icon{width:23px;height:23px;object-fit:contain;image-rendering:pixelated}
+ #footer{display:none}#toast{top:70px;max-width:90vw;white-space:normal;text-align:center}
+}
+@media(orientation:portrait) and (max-width:390px){#hotbar{bottom:calc(84px + env(safe-area-inset-bottom))}.slot{width:38px;height:42px;flex-basis:38px}.joystick{width:112px;height:70px}.joyknob{width:42px;height:42px}.mbtn.jump{width:58px;height:58px}}
+@media(orientation:portrait) and (max-height:620px){#hotbar{bottom:calc(78px + env(safe-area-inset-bottom))}.slot{height:39px}.joystick{height:64px}.joyknob{width:40px;height:40px}.mbtn.jump{width:54px;height:54px}}
+@media(max-height:500px){#mobile{display:flex}#topbar{top:6px;left:8px;right:8px}#actions{top:54px;right:8px}#hotbar{bottom:6px;left:50%;transform:translateX(-50%) scale(.82);transform-origin:bottom center}.brand{padding:5px 8px}#mobile{bottom:8px;left:24px;right:8px}.joystick{height:92px;width:184px}.joyknob{width:58px;height:58px}.mbtn{width:62px;height:62px}.mbtn.jump{width:76px;height:76px}}
+#toast{display:none!important;position:fixed;left:50%;top:124px;transform:translateX(-50%);padding:10px 14px;border-radius:11px;background:#10232bee;border:1px solid var(--gold);box-shadow:var(--shadow);font-weight:800;font-size:12px;opacity:0;transition:opacity .18s;pointer-events:none;white-space:nowrap;z-index:30}
+#footer{position:fixed;bottom:3px;left:0;right:0;text-align:center;font-size:9px;color:#d0e0d8;opacity:.75;pointer-events:none}
+#modalback{display:none;position:fixed;inset:0;background:#071017aa;backdrop-filter:blur(5px);z-index:20;align-items:center;justify-content:center;padding:16px}#modalback.open{display:flex}.modal{width:min(440px,100%);max-height:min(80vh,600px);overflow:auto;background:#101e27;border:1px solid #46616b;border-radius:18px;padding:18px;box-shadow:0 24px 70px #0009}.modalhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}.modalhead h2{font-size:17px;margin:0;letter-spacing:.2px}.modalhead p{font-size:11px;color:var(--muted);margin:4px 0 0}.closebtn{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:#1b2e38;color:white;font-size:18px}.modalgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.invitem{min-height:92px;border:1px solid #304852;background:#152832;border-radius:11px;padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:11px;color:#e6efec}.invitem .swatch{width:27px;height:27px}.invitem b{color:var(--mint)}.modalcopy{font-size:12px;line-height:1.65;color:#c6d5d8}.modalactions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.modalactions button{flex:1;min-width:110px}.menurow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #293f48;font-size:12px}.menurow:last-child{border-bottom:0}.tag{color:var(--mint);font-size:10px;font-weight:800}
+@media(max-width:700px){#mobile{display:flex}.brand{font-size:11px;padding:7px 9px;gap:7px}.brand .mark{width:24px;height:24px}.brand small{display:none}.slot{width:44px;height:49px;flex-basis:44px;font-size:8px}.swatch{width:19px;height:19px}#hint{display:none!important}#actions{top:62px;right:10px;gap:4px}.action{padding:7px 8px;font-size:10px}.action#newBtn{display:none}#footer{display:none}#hotbar{bottom:10px;gap:4px;padding:5px}.modal{padding:16px}.modalgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:390px){#hint{display:none}#stats{gap:4px}.stat{padding:6px}.slot{width:40px;flex-basis:40px}.brand{padding:6px 7px}.brand .mark{width:21px;height:21px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+.world-screen{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;padding:22px;background:radial-gradient(ellipse at 50% 20%,#254353 0%,#0c1720 70%);text-align:center}
+.world-screen.visible{display:flex}
+.world-card{width:min(390px,100%);padding:26px 24px;border:1px solid #47616c;border-radius:22px;background:#13232df2;box-shadow:0 20px 60px #0008;display:flex;flex-direction:column;gap:12px}
+.world-card h1{font-size:25px;letter-spacing:2px;margin:0}
+.world-sub{margin:0 0 8px;color:#c4d4d8;font-size:13px}
+.world-card label{text-align:left;color:#9be27d;font-size:10px;font-weight:900;letter-spacing:1.4px}
+.world-card input{width:100%;padding:13px 12px;border:1px solid #47616c;border-radius:10px;background:#0d1a22;color:#f4f8f6;font:inherit;outline:none}
+.world-card input:focus{border-color:#9be27d;box-shadow:0 0 0 2px #9be27d22}
+.world-card button{width:100%;padding:12px;font-size:12px}
+.world-note{font-size:10px;line-height:1.5;color:#9bb0b8;margin:4px 0 0}
+#fullscreenBtn{width:100%}
+@media(max-height:500px){.world-card{padding:15px 20px;gap:8px}.world-card .gate-icon{font-size:30px}.world-card h1{font-size:20px}.world-card input{padding:9px}}
+
+
+/* Pixel-adventure UI skin: inset metal/wood frames, beveled controls, textured panels. */
+:root{--ink:#fff4d5;--panel:rgba(25,31,32,.96);--panel2:#30382e;--line:#85704b;--muted:#b8b29a;--mint:#a8e66e;--gold:#ffcf67;--shadow:0 5px 0 #080d10,0 10px 24px #0008}
+.brand,.stat,.action,.iconbtn{border:2px solid #806b49;border-radius:5px;box-shadow:inset 0 0 0 1px #c4a66a33,inset 0 -3px #0005,0 4px 0 #0b1112;backdrop-filter:none}
+.brand{background:linear-gradient(180deg,#38473b,#1b2927);letter-spacing:1px;text-shadow:1px 2px #101712}
+.brand .mark{border-radius:3px;box-shadow:inset -3px -3px #47743c,inset 2px 2px #d8ffac;border:1px solid #172d20}
+.stat{background:linear-gradient(180deg,#303a35,#182422);border-color:#6f765a;color:#e6d9b2}
+.action,.iconbtn{background:linear-gradient(180deg,#394842,#202c2b);border-color:#80714f;color:#fff0cc;text-shadow:1px 1px #101512}
+.action:hover,.iconbtn:hover{border-color:#d7be78;background:linear-gradient(180deg,#495a45,#293d35)}
+.action.primary{background:linear-gradient(180deg,#b6ee78,#6caa4c);color:#1b2b1d;border-color:#e2f4a3;text-shadow:0 1px #e9ffc0;box-shadow:inset 0 2px #e8ffc255,inset 0 -3px #426f39,0 4px 0 #0b1112}
+#hotbar{padding:7px;background:linear-gradient(180deg,#504431,#282824 45%,#191f1e);border:2px solid #9a7b4d;border-radius:6px;box-shadow:inset 0 0 0 2px #d3b77a26,inset 0 5px #0004,0 6px 0 #090e10,0 12px 24px #0007;backdrop-filter:none}
+.slot{border:2px solid #574b37;border-radius:4px;background:linear-gradient(145deg,#333b33,#161e20);box-shadow:inset 2px 2px #c5bd9440,inset -3px -3px #080e10a8;color:#eee2bc}
+.slot:hover{background:linear-gradient(145deg,#46513d,#202b28)}
+.slot.active{border:2px solid #ffdc76;background:linear-gradient(145deg,#665735,#3d3b2b);box-shadow:inset 2px 2px #fff2a855,inset -3px -3px #251f12,0 0 0 2px #231b11,0 0 12px #ffcf6755;transform:translateY(-3px)}
+.key{color:#cbb98e}.count{font-size:11px;color:#fff6ce;text-shadow:1px 2px #21190f,-1px -1px #21190f}
+.item-icon{display:block;width:28px;height:28px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(1px 2px #090e0d88)}
+.slot .item-icon{width:28px;height:28px}.invitem .item-icon{width:38px;height:38px;image-rendering:pixelated}
+.modal{border:2px solid #95784d;border-radius:7px;background:repeating-linear-gradient(135deg,#1f2a27 0,#1f2a27 8px,#222e29 8px,#222e29 16px);box-shadow:inset 0 0 0 2px #e1c27a22,0 8px 0 #080d10,0 24px 70px #000b}
+.modalhead h2{color:#ffe08b;text-shadow:1px 2px #171d19;letter-spacing:1px;text-transform:uppercase}
+.closebtn{border:2px solid #756447;border-radius:4px;background:linear-gradient(#43473d,#222924);box-shadow:inset 0 -2px #1118}
+.invitem{border:2px solid #655a40;border-radius:5px;background:linear-gradient(145deg,#344035,#1c2925);box-shadow:inset 2px 2px #d3d2a222,inset -3px -3px #080e0d80;color:#f2e6c6}
+.invitem b{color:#b7ef78;text-shadow:1px 1px #182415}
+.empty-inventory{border:2px dashed #756b4d;background:#1c2824aa}
+.world-card,.gate-card{border:2px solid #90764d;border-radius:7px;background:repeating-linear-gradient(135deg,#24342e 0,#24342e 9px,#202e2a 9px,#202e2a 18px);box-shadow:inset 0 0 0 2px #e5c68118,0 8px 0 #080e10,0 24px 60px #0009}
+.world-card h1,.gate-card h1{color:#f4db8b;text-shadow:2px 2px #18231e,3px 3px #090e0e;letter-spacing:3px}
+.world-card input{border:2px solid #786747;border-radius:4px;background:#101b18;box-shadow:inset 0 3px 7px #0008;color:#fff3ce}
+.joystick{background:radial-gradient(ellipse at 35% 25%,#46584b,#172725 72%);border:3px solid #aa956a;border-radius:27px;box-shadow:inset 0 0 0 2px #d9bd7833,inset 0 -5px #080d10,0 5px 0 #080d10}
+.joyknob{background:linear-gradient(145deg,#d4f38f,#78ba54);border:3px solid #ecffbe;box-shadow:inset -5px -5px #4d803d,inset 3px 3px #f6ffd2,0 3px 0 #111a13}
+.mbtn{background:linear-gradient(145deg,#33453d,#15231f);border:3px solid #b29a66;box-shadow:inset 0 0 0 2px #d6bb7a22,inset 0 -5px #050a0a,0 5px 0 #070c0d;color:#fff1c9}
+.mbtn.jump{background:linear-gradient(145deg,#b6e975,#477c43);border-color:#dff5a0;color:#19311b;box-shadow:inset 0 2px #f5ffd1, inset 0 -5px #315731,0 5px 0 #070c0d}
+#toast{border:2px solid #c8a85f;border-radius:4px;background:linear-gradient(#344037,#192521);color:#ffecb2;text-shadow:1px 1px #121812;box-shadow:inset 0 0 0 2px #e9ce7a22,0 5px 0 #080d10,0 12px 26px #0009}
+.menurow{border-bottom:1px solid #67593b}.tag{color:#b5ef78}
+.gem-wallet{display:flex;align-items:center;gap:14px;margin:8px 0 14px;padding:16px;border:1px solid #587c75;border-radius:12px;background:linear-gradient(135deg,#183b3a,#142a31)}.gem-wallet-icon{font-size:34px;color:#71eadb;text-shadow:0 0 12px #42d7db88}.gem-wallet small{display:block;color:#a9c6bd;font-size:10px;letter-spacing:1px;font-weight:800}.gem-wallet strong{display:block;color:#d7ffac;font-size:25px;line-height:1.2}.store-empty{padding:18px;border:1px dashed #526a62;border-radius:12px;background:#152b2b;color:#dce9da}.store-empty strong{display:block;color:#f0f4db;margin-bottom:7px}.store-empty p{margin:0;color:#b6c8bf;font-size:12px;line-height:1.5}
+
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0" aria-label="GrowPixel sandbox world"></canvas>
+<div id="topbar">
+  <button type="button" class="brand" id="gemStoreBtn" aria-label="Open Gem Store"><span class="mark gem-mark">◆</span><span class="gem-store-label">GEM STORE</span><span class="gem-total" id="gemBalance">0</span></button>
+</div>
+
+<div id="actions"><button class="action primary" id="menuBtn">☰ Menu</button></div>
+<div id="toast"></div>
+<div id="hotbar"></div>
+<div id="mobile">
+ <div class="pad" aria-label="Movement joystick"><div id="joystick" class="joystick" role="application" aria-label="Sideways movement joystick"><div id="joyknob" class="joyknob"></div></div></div>
+ <div class="pad right-controls"><button class="mbtn jump" data-tap="jump" aria-label="Jump">▲</button></div>
+</div>
+<div id="orientationGate"><div class="gate-card"><div class="gate-icon">↔</div><h1>GROWPIXEL</h1><p id="gateMessage">Choose your preferred device orientation. GrowPixel adapts its controls automatically.</p><button id="enterGame" class="action primary">START GAME</button><small>Portrait and landscape layouts supported · Touch controls</small></div></div>
+<div id="worldScreen" class="world-screen"><div class="world-card"><div class="gate-icon">▦</div><h1>GROWPIXEL</h1><p class="world-sub">A world of your own awaits.</p><label for="worldNameInput">WORLD NAME</label><input id="worldNameInput" maxlength="24" placeholder="Enter a world name" autocomplete="off" /><button id="createWorldBtn" class="action primary">GENERATE WORLD</button><button id="continueWorldBtn" class="action">CONTINUE SAVED WORLD</button><button id="fullscreenStartBtn" class="action">⛶ FULLSCREEN</button><p class="world-note">Worlds are generated locally. Your current world saves on this device.</p></div></div>
+<div id="footer">A small world of your own · Progress saves locally on this device</div>
+<div id="modalback" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal" id="modal"></div></div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d',{alpha:false});
+ctx.imageSmoothingEnabled=false;
+const TILE=52,WORLD_W=180,WORLD_H=65;
+const defs={
+ dirt:{name:'Dirt',color:'#9c653e',side:'#75472f',hard:0.42,solid:true},
+ stone:{name:'Stone',color:'#89969c',side:'#626e78',hard:0.8,solid:true},
+ wood:{name:'Wood',color:'#b87943',side:'#7b4a2b',hard:0.52,solid:false},
+ leaves:{name:'Leaves',color:'#419b55',side:'#287744',hard:0.2,solid:true},
+ sand:{name:'Sand',color:'#e2c574',side:'#bca45e',hard:0.35,solid:true},
+ dirtSeed:{name:'Dirt Seed',color:'#8ecb63',side:'#4c873d',hard:0.1,solid:false,seedFor:'dirt'},
+ stoneSeed:{name:'Stone Seed',color:'#a6c8b4',side:'#668b78',hard:0.1,solid:false,seedFor:'stone'},
+ woodSeed:{name:'Wood Seed',color:'#e4b16b',side:'#93602e',hard:0.1,solid:false,seedFor:'wood'},
+ leavesSeed:{name:'Leaves Seed',color:'#76d66b',side:'#32854a',hard:0.1,solid:false,seedFor:'leaves'},
+ sandSeed:{name:'Sand Seed',color:'#f4df8d',side:'#bba05a',hard:0.1,solid:false,seedFor:'sand'},
+ lavaSeed:{name:'Lava Seed',color:'#ff9a50',side:'#b83b24',hard:0.1,solid:false,seedFor:'lava'},
+ seedPot:{name:'Seed Pot',color:'#8d7150',side:'#5e4935',hard:0.12,solid:false,placeable:true},
+ lava:{name:'Lava',color:'#f15a24',side:'#9f281c',hard:0.58,solid:true},
+ bedrock:{name:'Bedrock',color:'#3e4a57',side:'#27323d',hard:999,solid:true},
+};
+const ids=Object.keys(defs);
+let world=[],drops=[],particles=[],trees=[],plantedSeeds=[],keys={},camera={x:0,y:0},player={x:8*TILE,y:0,vx:0,vy:0,w:44,h:78,ground:false,face:1},inventory={dirt:0,stone:0,wood:0,leaves:0,sand:0,lava:0},selected='fist',coins=0,gems=0,worldSeed=1,worldName='Meadow-01',time=0,daylight=0.72;
+let viewW=800,viewH=600,scale=1,mouse={x:0,y:0,down:false,right:false},mining=null,toastTimer=0,saveFlash=0,actionCooldown=0;
+let animTime=0,walkPhase=0,punchTime=0,placeTime=0,punchCooldown=0,punchDir={x:1,y:0},punchDistance=0;
+let coyoteTimer=0,jumpBuffer=0,landSquash=0,wasGrounded=false,moveBlend=0;
+const blockOrder=['dirt','stone','wood','leaves','sand','lava'];
+const seedOrder=blockOrder.map(id=>id+'Seed');
+const blockDropChance={dirt:.30,stone:.20,wood:.20,leaves:.15,sand:.20,lava:.20};
+const seedDropChance={dirt:.20,stone:.125,wood:.15,leaves:.10,sand:.10,lava:.225};
+const treeHarvestRange={dirt:[2,6],stone:[1,3],wood:[1,3],leaves:[2,7],sand:[2,5],lava:[1,5]};
+const hotOrder=[...blockOrder,...seedOrder,'seedPot'];
+const itemIconCache={};
+function randGen(seed){let s=seed>>>0;return ()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+let rand=randGen(1);
+function say(s){/* In-game pop-up notifications disabled; contextual information stays in the world/UI. */ const e=document.getElementById('toast');if(e)e.style.opacity=0;toastTimer=0}
+function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);viewW=Math.max(1,document.documentElement.clientWidth||window.innerWidth);viewH=Math.max(1,window.visualViewport?.height||window.innerHeight);canvas.width=Math.round(viewW*dpr);canvas.height=Math.round(viewH*dpr);canvas.style.width=viewW+'px';canvas.style.height=viewH+'px';ctx.setTransform(dpr,0,0,dpr,0,0);scale=Math.max(.7,Math.min(1.45,viewW/950));}
+window.addEventListener('resize',resize);window.visualViewport?.addEventListener('resize',resize);resize();
+function blankWorld(){return Array.from({length:WORLD_H},()=>Array(WORLD_W).fill(null))}
+function surfaceAt(x){return 25}
+function generate(seed){
+ worldSeed=seed;rand=randGen(seed);world=blankWorld();drops=[];particles=[];trees=[];plantedSeeds=[];
+ const surf=25;
+ // A perfectly level dirt surface. Grass is a visual cap on exposed dirt, not a separate block.
+ for(let x=0;x<WORLD_W;x++){
+   for(let y=surf;y<WORLD_H;y++){
+     world[y][x]=y>=WORLD_H-4?'lava':'dirt';
+   }
+ }
+ // Scatter irregular stone pockets through the otherwise dirt-heavy underground.
+ for(let i=0;i<155;i++){
+   const cx=2+Math.floor(rand()*(WORLD_W-4));
+   const cy=surf+3+Math.floor(rand()*(WORLD_H-surf-9));
+   const rx=1+Math.floor(rand()*3),ry=1+Math.floor(rand()*2);
+   for(let yy=cy-ry;yy<=cy+ry;yy++)for(let xx=cx-rx;xx<=cx+rx;xx++){
+     if(xx>0&&xx<WORLD_W-1&&yy>surf+1&&yy<WORLD_H-4&&((xx-cx)**2/(rx*rx+0.01)+(yy-cy)**2/(ry*ry+0.01))<1.2&&rand()>.16)world[yy][xx]='stone';
+   }
+ }
+ // A few occasional trees grow on the flat surface.
+ for(let x=8;x<WORLD_W-8;x++){
+   if(rand()<.045){
+     const trunk=3+Math.floor(rand()*3);
+     for(let k=1;k<=trunk;k++)world[surf-k][x]='wood';
+     const ty=surf-trunk;
+     for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+       const xx=x+dx,yy=ty+dy;
+       if(Math.abs(dx)+Math.abs(dy)<4&&xx>1&&xx<WORLD_W-1&&yy>1&&world[yy][xx]===null)world[yy][xx]='leaves';
+     }
+   }
+ }
+ player.x=8*TILE;player.y=surf*TILE-player.h;player.vx=player.vy=0;player.ground=false;moveBlend=0;walkPhase=0;landSquash=0;
+ inventory=Object.fromEntries(hotOrder.map(id=>[id,0]));inventory.seedPot=10;selected='fist';coins=0;
+ camera.x=0;camera.y=0;updateUI();say('A fresh frontier awaits!');
+}
+function cell(x,y){if(x<0||x>=WORLD_W||y<0)return 'bedrock';if(y>=WORLD_H)return 'bedrock';return world[y][x]}
+function setCell(x,y,id){if(x>=0&&x<WORLD_W&&y>=0&&y<WORLD_H)world[y][x]=id}
+function solid(id){return !!id&&defs[id]?.solid}
+function rectCollide(x,y,w,h){const l=Math.floor(x/TILE),r=Math.floor((x+w-.01)/TILE),t=Math.floor(y/TILE),b=Math.floor((y+h-.01)/TILE);for(let yy=t;yy<=b;yy++)for(let xx=l;xx<=r;xx++)if(solid(cell(xx,yy)))return true;return false}
+function hotbarEntries(){
+ const selectable=[{id:'fist',name:'Fist',count:null},...hotOrder.filter(id=>(inventory[id]||0)>0).map(id=>({id,name:defs[id].name,count:inventory[id]}))];
+ // Inventory is a permanent utility slot at the far-left; collected items can never push it away.
+ return [{id:'inventoryAction',name:'Inventory',special:true},...selectable];
+}
+function updateUI(){
+ const balance=document.getElementById('gemBalance');if(balance)balance.textContent=String(gems);
+ const bar=document.getElementById('hotbar');bar.innerHTML='';
+ const entries=hotbarEntries();
+ if(!entries.some(e=>e.id===selected&&!e.special&&!e.empty))selected='fist';
+ entries.forEach((item,i)=>{
+   const el=document.createElement('button');el.className='slot'+(selected===item.id?' active':'')+(item.id==='fist'?' fist-slot':'')+(item.special?' inventory-slot':'')+(item.empty?' empty-slot':'');
+   el.type='button';
+   if(item.empty){el.disabled=true;el.setAttribute('aria-hidden','true');el.innerHTML='';bar.appendChild(el);return;}
+   const icon=item.id==='fist'?'<span class="fist-icon">✊</span>':item.special?'<span class="bag-icon">▦</span>':`<img class="item-icon" src="${itemIconData(item.id,34)}" alt="">`;
+   const label=item.special?'Inventory':item.name;
+   el.innerHTML=`<span class="key">${i+1}</span>${icon}<span>${label}</span>${item.count===null||item.special?'':`<span class="count">${item.count}</span>`}`;
+   if(item.special){el.setAttribute('aria-label','Open inventory');el.addEventListener('click',()=>openModal('inventory'));}
+   else el.addEventListener('click',()=>{selected=item.id;mining=null;mouse.down=false;updateUI()});
+   bar.appendChild(el);
+ });
+}
+// Original synthesized ambience and effects: no external audio files required.
+let audioCtx=null,soundEnabled=true,musicEnabled=true,musicTimer=null,musicStep=0;
+function ensureAudio(){
+ try{if(!audioCtx){audioCtx=new (window.AudioContext||window.webkitAudioContext)()}if(audioCtx.state==='suspended')audioCtx.resume();if(musicEnabled&&!musicTimer)startMusic();}catch(e){}
+}
+function tone(freq,duration,wave='sine',volume=.025,delay=0){
+ if(!soundEnabled||!audioCtx)return;try{const t=audioCtx.currentTime+delay,o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=wave;o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(volume,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+duration);o.connect(g);g.connect(audioCtx.destination);o.start(t);o.stop(t+duration+.025)}catch(e){}
+}
+function noiseHit(duration=.09,volume=.035,filterFreq=900,delay=0){
+ if(!soundEnabled||!audioCtx)return;try{const length=Math.max(1,Math.floor(audioCtx.sampleRate*duration)),buf=audioCtx.createBuffer(1,length,audioCtx.sampleRate),data=buf.getChannelData(0);for(let i=0;i<length;i++){const fade=1-i/length;data[i]=(Math.random()*2-1)*fade*(.65+Math.random()*.35)}const src=audioCtx.createBufferSource(),filter=audioCtx.createBiquadFilter(),g=audioCtx.createGain(),t=audioCtx.currentTime+delay;src.buffer=buf;filter.type='lowpass';filter.frequency.setValueAtTime(filterFreq,t);g.gain.setValueAtTime(volume,t);g.gain.exponentialRampToValueAtTime(.0001,t+duration);src.connect(filter);filter.connect(g);g.connect(audioCtx.destination);src.start(t);src.stop(t+duration+.01)}catch(e){}
+}
+function playSfx(kind,id='dirt'){
+ ensureAudio();if(!soundEnabled)return;
+ // Soft, material-specific impacts use filtered noise and low resonances rather than harsh square-wave beeps.
+ const material={dirt:{f:125,filter:520,noise:.045,tail:95},grass:{f:145,filter:700,noise:.035,tail:120},stone:{f:185,filter:1250,noise:.055,tail:245},wood:{f:155,filter:760,noise:.048,tail:195},leaves:{f:430,filter:2100,noise:.025,tail:520},sand:{f:210,filter:850,noise:.032,tail:175},lava:{f:78,filter:420,noise:.04,tail:68},bedrock:{f:205,filter:1000,noise:.05,tail:160}};
+ const m=material[id]||material.dirt;
+ if(kind==='punch'){
+   noiseHit(id==='stone'?.075:.065,id==='stone'?.105:.085,m.filter*.85);
+   tone(m.f,.10,'sine',.055);tone(m.tail,.085,'triangle',.032,.025);
+ }else if(kind==='break'){
+   noiseHit(id==='stone'?.22:.17,id==='stone'?.15:.13,m.filter*1.25);
+   tone(m.f*.72,.17,'sine',.065);tone(m.tail,.14,'triangle',.038,.025);
+   if(id==='stone'){noiseHit(.12,.095,1900,.045);tone(620,.09,'sine',.03,.06)}
+   if(id==='wood'){tone(105,.13,'triangle',.065,.025);noiseHit(.11,.09,1250,.05)}
+   if(id==='leaves'||id==='grass'||id==='sand')noiseHit(.13,.075,2400,.035);
+ }else if(kind==='place'){
+   noiseHit(.065,.065,700);tone(id==='stone'?220:id==='wood'?165:145,.12,'sine',.045,.012);
+ }else if(kind==='pickup'){
+   tone(660,.11,'sine',.05);tone(880,.14,'sine',.04,.055);noiseHit(.045,.035,2600,.02);
+ }else if(kind==='jump'){
+   noiseHit(.05,.05,500);tone(230,.1,'sine',.04);tone(315,.11,'sine',.03,.045);
+ }
+}
+function startMusic(){if(!audioCtx||!musicEnabled||musicTimer)return;const notes=[261.63,329.63,392,329.63,293.66,349.23,440,349.23,261.63,329.63,392,523.25,440,392,329.63,293.66];musicStep=0;musicTimer=setInterval(()=>{if(!audioCtx||!musicEnabled||!soundEnabled)return;const n=notes[musicStep%notes.length];tone(n,.48,'triangle',.012);if(musicStep%4===0)tone(n/2,.62,'sine',.009,.02);musicStep++},520)}
+function stopMusic(){if(musicTimer){clearInterval(musicTimer);musicTimer=null}}
+function toggleSound(){soundEnabled=!soundEnabled;if(soundEnabled){ensureAudio();say('Sound effects '+(soundEnabled?'on':'off'))}else{stopMusic();say('Sound off')} }
+function toggleMusic(){musicEnabled=!musicEnabled;if(musicEnabled){ensureAudio();startMusic();say('Background music on')}else{stopMusic();say('Background music off')}}
+window.addEventListener('pointerdown',ensureAudio,{once:true});window.addEventListener('keydown',ensureAudio,{once:true});
+function addDrop(id,x,y,quantity=1){
+ // Gems are denomination pickups, never framed or numerically stacked.
+ if(id==='gem'){
+  let remaining=Math.max(0,Math.floor(quantity));
+  const denominations=[100,50,10,5,1];let index=0;
+  for(const value of denominations){while(remaining>=value){
+   const angle=index*2.399963,spread=Math.min(12,index*2.1);
+   const px=x+Math.cos(angle)*spread,py=y+Math.sin(angle)*spread-2;
+   drops.push({id:'gem',value,x:px,y:py,homeX:px,homeY:py,age:0,count:1});
+   remaining-=value;index++;
+  }}
+  return drops[drops.length-1]||null;
+ }
+ // Ordinary item drops retain their existing shared pickup frame and stack count.
+ const nearby=drops.find(d=>d.id===id&&Math.hypot(d.homeX-x,d.homeY-y)<30&&d.age<1.2);
+ if(nearby){const n=nearby.count||1,total=n+quantity;nearby.count=total;nearby.homeX=(nearby.homeX*n+x*quantity)/total;nearby.homeY=(nearby.homeY*n+y*quantity)/total;nearby.x=nearby.homeX;nearby.y=nearby.homeY;return nearby}
+ const d={id,x,y,homeX:x,homeY:y,age:0,count:quantity};drops.push(d);return d;
+}
+function drawGemPickup(c,x,y,size,value=1){
+ // Five distinct pixel-gem silhouettes: denomination controls both palette and scale.
+ const styles={
+  1:{size:9,colors:['#07566a','#28b9c5','#a5ffff'],shape:['..111..','.12221.','1222221','1222221','.12221.','..121..','...1...']},
+  5:{size:12,colors:['#315d18','#79c83c','#e2ff9a'],shape:['...11...','..1221..','.122221.','12222221','12222221','.122221.','..1221..','...11...']},
+  10:{size:15,colors:['#243d86','#537fe5','#d4edff'],shape:['...111...','..12221..','.1222221.','122222221','122222221','122222221','.1222221.','..12221..','...111...']},
+  50:{size:18,colors:['#54277e','#a65be0','#f0c6ff'],shape:['....11....','...1221...','..122221..','.12222221.','1222222221','1222222221','.12222221.','..122221..','...1221...','....11....']},
+  100:{size:22,colors:['#8a4b12','#f0b52e','#fff0a0'],shape:['.....11.....','....1221....','...122221...','..12222221..','.1222222221.','122222222221','122222222221','.1222222221.','..12222221..','...122221...','....1221....','.....11.....']}
+ };
+ const st=styles[value]||styles[1],grid=st.shape.length,cell=size/grid;
+ c.save();c.translate(Math.round(x-st.size/2),Math.round(y-st.size/2));
+ for(let row=0;row<grid;row++)for(let col=0;col<st.shape[row].length;col++){
+  const ch=st.shape[row][col];if(ch==='.')continue;
+  c.fillStyle=ch==='1'?st.colors[0]:ch==='2'?st.colors[1]:st.colors[2];
+  c.fillRect(Math.floor(col*cell),Math.floor(row*cell),Math.ceil(cell),Math.ceil(cell));
+ }
+ // Small crisp highlight, deliberately no surrounding pickup frame or quantity label.
+ c.fillStyle=st.colors[2];c.fillRect(Math.floor(cell*2),Math.floor(cell*2),Math.max(1,Math.floor(cell)),Math.max(1,Math.floor(cell)));
+ c.restore();
+}
+function burst(x,y,color,n=5){for(let i=0;i<n;i++)particles.push({x,y,vx:(rand()-.5)*100,vy:-rand()*90,life:.35+rand()*.35,color})}
+function mineAt(wx,wy){
+ if(selected!=='fist')return;
+ const tx=Math.floor(wx/TILE),ty=Math.floor(wy/TILE),px=(player.x+player.w/2)/TILE,py=(player.y+player.h/2)/TILE;
+ if(Math.hypot(tx+.5-px,ty+.5-py)>3.1)return;
+ const planted=plantedSeeds.find(ps=>ps.x===tx&&ps.y===ty);
+ const matureTree=!!(planted&&planted.mature);
+ const id=cell(tx,ty);
+ const txc=(tx+.5)*TILE,tyc=(ty+.5)*TILE,pcx=player.x+player.w/2,pcy=player.y+player.h*.42;
+ let dx=txc-pcx,dy=tyc-pcy,dl=Math.hypot(dx,dy)||1;
+ if(Math.abs(dx)>3)player.face=dx>0?1:-1;
+ if(!id&&!matureTree){
+   mining=null;
+   if(punchCooldown<=0){punchDir={x:dx/dl,y:dy/dl};punchDistance=dl;punchTime=0.28;punchCooldown=0.34;playSfx('punch','dirt');}
+   return;
+ }
+ if(id==='bedrock')return;
+ const material=matureTree?planted.id:id;
+ const key=tx+','+ty;
+ // Mature trees harvest immediately on one tap, unlike solid blocks that require holding.
+ if(matureTree){
+   if(punchCooldown<=0){punchDir={x:dx/dl,y:dy/dl};punchDistance=dl;punchTime=0.28;punchCooldown=0.34;playSfx('punch',material);}
+   const dropX=(tx+.5)*TILE,dropY=(ty+.5)*TILE;
+   plantedSeeds.splice(plantedSeeds.indexOf(planted),1);
+   const range=treeHarvestRange[material]||[1,3],count=range[0]+Math.floor(rand()*(range[1]-range[0]+1));
+   for(let n=0;n<count;n++)addDrop(material,dropX+(rand()-.5)*18,dropY+(rand()-.5)*10);
+   mining=null;burst(dropX,dropY,defs[material].color,15);playSfx('break',material);say('Tree harvested: '+count+' '+defs[material].name+' block'+(count===1?'':'s'));updateUI();return;
+ }
+ if(!mining||mining.key!==key)mining={key,tx,ty,id:material,tree:false,progress:0};
+ const hardness=defs[material]?.hard||.5;
+ mining.progress+=Math.min(0.05,1/60)/(hardness*2.35);
+ if(punchCooldown<=0){punchDir={x:dx/dl,y:dy/dl};punchDistance=dl;punchTime=0.28;punchCooldown=0.34;playSfx('punch',material);}
+ if(mining.progress>=1){
+   const dropX=(tx+.5)*TILE,dropY=(ty+.5)*TILE;
+   {
+     if(id==='seedPot'){
+       setCell(tx,ty,null);
+       // A planted seed is consumed on planting and is not refunded if its pot is broken.
+       const plantedHere=plantedSeeds.findIndex(ps=>ps.x===tx&&ps.y===ty);
+       if(plantedHere>=0)plantedSeeds.splice(plantedHere,1);
+       inventory.seedPot=(inventory.seedPot||0)+1;
+       updateUI();say('Seed Pot returned to inventory');
+     }else setCell(tx,ty,null);
+     burst(dropX,dropY,defs[id].color,12);playSfx('break',id);
+     // Block and seed drops are independent and use their own material-specific chances.
+     if(blockOrder.includes(id)&&rand()<blockDropChance[id])addDrop(id,dropX+(rand()-.5)*10,dropY);
+     if(blockOrder.includes(id)&&rand()<seedDropChance[id])addDrop(id+'Seed',dropX+(rand()-.5)*12,dropY-4);
+     // Every breakable block, including a Seed Pot, rolls 0–3 Gems. Trees do not.
+     if((blockOrder.includes(id)||id==='seedPot')){const gemCount=Math.floor(rand()*4);if(gemCount>0)addDrop('gem',dropX+(rand()-.5)*8,dropY-8,gemCount);}
+   }
+   mining=null;
+ }
+}
+function placeAt(wx,wy){
+ const tx=Math.floor(wx/TILE),ty=Math.floor(wy/TILE),px=(player.x+player.w/2)/TILE,py=(player.y+player.h/2)/TILE;
+ if(Math.hypot(tx+.5-px,ty+.5-py)>3.1)return;
+ if(selected==='fist'||!defs[selected]||!inventory[selected])return;
+ const bx=tx*TILE,by=ty*TILE;
+ if(bx<player.x+player.w&&bx+TILE>player.x&&by<player.y+player.h&&by+TILE>player.y+hypotZero())return;
+ if(defs[selected].seedFor){
+   const blockId=defs[selected].seedFor;
+   if(cell(tx,ty)!=='seedPot'||plantedSeeds.some(ps=>ps.x===tx&&ps.y===ty)){say('Plant '+defs[selected].name+' inside an empty Seed Pot');return;}
+   plantedSeeds.push({x:tx,y:ty,id:blockId,age:0,mature:false});inventory[selected]--;playSfx('place',blockId);burst(bx+TILE/2,by+TILE*.72,defs[selected].color,5);say('Seed planted in Seed Pot');if(inventory[selected]<=0)selected='fist';updateUI();return;
+ }
+ if(cell(tx,ty))return;
+ const placedId=selected;
+ if(placedId!=='seedPot'){
+   let supported=false;for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]])if(solid(cell(tx+dx,ty+dy)))supported=true;
+   if(!supported)return;
+ }
+ setCell(tx,ty,placedId);inventory[placedId]--;placeTime=0.22;playSfx('place',placedId);burst(bx+TILE/2,by+TILE/2,defs[placedId].color,7);if(inventory[placedId]<=0)selected='fist';updateUI();
+}
+function hypotZero(){return 0}
+function dropUpdate(dt){
+ for(let i=drops.length-1;i>=0;i--){let d=drops[i];d.age+=dt;d.x=d.homeX+Math.sin(d.age*2.4)*2;d.y=d.homeY+Math.sin(d.age*2.8)*2.5;
+   const dx=player.x+player.w/2-d.x,dy=player.y+player.h/2-d.y;
+   if(Math.hypot(dx,dy)<26){if(d.id==='gem'){gems+=(d.value||1);drops.splice(i,1);playSfx('pickup','gem');updateUI();saveGame(false);}else if(d.id!=='bedrock'){const amount=d.count||1;inventory[d.id]=(inventory[d.id]||0)+amount;coins+=(d.id==='stone'?2:1)*amount;drops.splice(i,1);playSfx('pickup',d.id);updateUI();}}
+   
+ }
+}
+function movePlayer(dt){
+ const left=keys.ArrowLeft||keys.a||keys.A||keys.left;
+ const right=keys.ArrowRight||keys.d||keys.D||keys.right;
+ let dir=(right?1:0)-(left?1:0);
+ // Accelerate into movement and apply strong grounded friction when released.
+ const maxSpeed=178, accel=dir?(player.ground?1350:1050):(player.ground?1550:900);
+ if(dir){
+   player.vx+=dir*accel*dt;
+   player.vx=Math.max(-maxSpeed,Math.min(maxSpeed,player.vx));
+   player.face=dir;
+ } else {
+   const drag=accel*dt;
+   if(player.vx>0)player.vx=Math.max(0,player.vx-drag);
+   else player.vx=Math.min(0,player.vx+drag);
+ }
+ if(Math.abs(player.vx)<2.5)player.vx=0;
+ moveBlend+=(Math.min(1,Math.abs(player.vx)/maxSpeed)-moveBlend)*Math.min(1,dt*10);
+ if(moveBlend>0.05&&player.ground)walkPhase+=dt*(5+moveBlend*10);
+ if(player.ground)coyoteTimer=0.11;else coyoteTimer=Math.max(0,coyoteTimer-dt);
+ if(keys[' ']||keys.ArrowUp||keys.w||keys.W||keys.jump)jumpBuffer=0.13;
+ else jumpBuffer=Math.max(0,jumpBuffer-dt);
+ if(jumpBuffer>0&&coyoteTimer>0){
+   player.vy=-500;player.ground=false;playSfx('jump');coyoteTimer=0;jumpBuffer=0;keys.jump=false;
+   landSquash=0;
+ }
+ // Releasing jump early cuts upward velocity for responsive variable-height jumps.
+ if(!(keys[' ']||keys.ArrowUp||keys.w||keys.W||keys.jump)&&player.vy < -145)player.vy+=760*dt;
+ player.vy=Math.min(440,player.vy+650*dt);
+ if(punchTime>0)punchTime=Math.max(0,punchTime-dt);
+ if(punchCooldown>0)punchCooldown=Math.max(0,punchCooldown-dt);
+ if(placeTime>0)placeTime=Math.max(0,placeTime-dt);
+ if(landSquash>0)landSquash=Math.max(0,landSquash-dt);
+ animTime+=dt;
+ const oldGround=player.ground;
+ const nx=player.x+player.vx*dt;
+ if(!rectCollide(nx,player.y,player.w,player.h))player.x=nx;
+ else player.vx=0;
+ const ny=player.y+player.vy*dt;
+ if(!rectCollide(player.x,ny,player.w,player.h)){player.y=ny;player.ground=false}
+ else {
+   if(player.vy>0){
+     player.ground=true;
+     player.y=Math.floor((player.y+player.h+player.vy*dt)/TILE)*TILE-player.h-.01;
+     if(!oldGround&&player.vy>160){landSquash=0.14;burst(player.x+player.w/2,player.y+player.h-2,'#b5a47a',5)}
+   } else if(player.vy<0)player.y=Math.floor(player.y/TILE+1)*TILE;
+   player.vy=0;
+ }
+ player.x=Math.max(0,Math.min(WORLD_W*TILE-player.w,player.x));
+ if(player.y>WORLD_H*TILE){player.x=8*TILE;player.y=surfaceAt(8)*TILE-player.h;player.vy=0;player.ground=false}
+}
+function drawBlock(id,x,y,tx,ty,targetCtx=ctx,t=TILE){
+ const c=targetCtx,d=defs[id];if(!d)return;
+ const seed=(tx*73856093^ty*19349663^id.length*83492791)>>>0;let s=seed||1;
+ const r=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296};
+ const px=Math.max(2,Math.floor(t/13)),q=(n)=>Math.max(1,Math.round(n*t/52));
+ c.save();
+ // Seed Pots are background-like planters: only the pot body, rim and soil are drawn.
+ // The rest of this grid tile is transparent, allowing the world background to show through.
+ if(id==='seedPot'){
+   // Low, grounded planter: the legs visibly reach down toward the bottom of the tile,
+   // while the pot's centre remains hollow/transparent like a background fixture.
+   // Back legs first so the rim and pot body sit in front of them.
+   c.fillStyle='#4a3524';
+   c.fillRect(x+q(9),y+q(40),q(4),q(10));
+   c.fillRect(x+t-q(13),y+q(40),q(4),q(10));
+   c.fillStyle='#87603a';
+   c.fillRect(x+q(8),y+q(44),q(5),q(6));
+   c.fillRect(x+t-q(13),y+q(44),q(5),q(6));
+   // Main pot body sits lower than before, with a dark inset front panel.
+   c.fillStyle='#3b2c20';c.fillRect(x+q(5),y+q(36),t-q(10),q(10));
+   c.fillStyle='#6c4b31';c.fillRect(x+q(3),y+q(33),t-q(6),q(7));
+   c.fillStyle='#c08a4c';c.fillRect(x+q(2),y+q(31),t-q(4),q(4));
+   c.fillStyle='#e4b66c';c.fillRect(x+q(4),y+q(31),t-q(8),q(2));
+   c.fillStyle='#705033';c.fillRect(x+q(5),y+q(37),t-q(10),q(7));
+   c.fillStyle='#b78a52';c.fillRect(x+q(7),y+q(39),q(4),q(4));c.fillRect(x+t-q(12),y+q(40),q(4),q(3));
+   c.fillStyle='#d4a76b';c.fillRect(x+q(8),y+q(34),q(3),q(2));c.fillRect(x+t-q(11),y+q(34),q(3),q(2));
+   c.fillStyle='#263c2d';c.fillRect(x+q(10),y+q(36),t-q(20),q(4));
+   // Tiny foot pads anchor the silhouette visually to the ground line.
+   c.fillStyle='#3b2c20';c.fillRect(x+q(7),y+q(49),q(8),q(2));c.fillRect(x+t-q(15),y+q(49),q(8),q(2));
+   c.restore();return;
+ }
+ // The outer edge is deliberately understated so touching blocks form a single terrain mass.
+ c.fillStyle=d.color;c.fillRect(x,y,t,t);
+ if(id==='dirt'){
+   const soils=['#b77a4b','#875335','#75482f','#ad7042','#c18a53'];
+   for(let i=0;i<29;i++){c.fillStyle=soils[Math.floor(r()*soils.length)];const xx=x+2+Math.floor(r()*(t-5)),yy=y+2+Math.floor(r()*(t-5)),ww=px*(r()>.76?2:1),hh=px*(r()>.85?2:1);c.fillRect(xx,yy,Math.min(ww,x+t-xx-1),Math.min(hh,y+t-yy-1))}
+   // compressed soil clumps and thin root-like seams
+   c.fillStyle='#5e3929';c.fillRect(x+q(8),y+q(25),q(8),q(2));c.fillRect(x+q(31),y+q(38),q(10),q(2));c.fillRect(x+q(18),y+q(13),q(3),q(5));
+   c.fillStyle='#d69a60';c.fillRect(x+q(6),y+q(16),q(8),q(3));c.fillRect(x+q(32),y+q(7),q(6),q(2));c.fillRect(x+q(23),y+q(34),q(5),q(3));
+   for(let i=0;i<8;i++){c.fillStyle=i%2?'#69412e':'#d09a62';c.fillRect(x+q(4+Math.floor(r()*43)),y+q(4+Math.floor(r()*42)),q(2),q(2))}
+   if(!cell(tx,ty-1)){
+     const cap=Math.max(q(10),Math.floor(t*.2));
+     c.fillStyle='#3e8338';c.fillRect(x,y,t,cap+q(2));c.fillStyle='#56b447';c.fillRect(x,y,t,q(7));c.fillStyle='#8ee95b';c.fillRect(x+q(3),y+q(1),q(11),q(3));c.fillRect(x+q(24),y+q(1),q(8),q(2));
+     // individually jagged grass blades and roots on the dirt seam
+     for(let i=0;i<Math.floor(t/2.8);i++){const gx=x+Math.floor(r()*(t-2));c.fillStyle=['#398c39','#55b949','#78d951','#2f7534'][Math.floor(r()*4)];c.fillRect(gx,y+Math.floor(r()*cap),q(2),q(2+r()*4))}
+     c.fillStyle='#91603d';c.fillRect(x,y+cap,t,q(2));c.fillStyle='#b17b4d';c.fillRect(x,y+cap,t,q(1));
+   }
+ }else if(id==='stone'){
+   const facets=['#aab7bd','#77868e','#6b7a83','#c3cdd0','#8c9aa0','#5f7079'];
+   for(let i=0;i<23;i++){c.fillStyle=facets[Math.floor(r()*facets.length)];const xx=x+q(2+Math.floor(r()*43)),yy=y+q(2+Math.floor(r()*43));c.fillRect(xx,yy,q(2+r()*8),q(2+r()*5))}
+   // broken mineral planes, chips and tiny cracks
+   c.fillStyle='#d8e0e2';c.fillRect(x+q(5),y+q(5),q(10),q(2));c.fillRect(x+q(7),y+q(7),q(3),q(3));c.fillRect(x+q(34),y+q(34),q(8),q(2));
+   c.fillStyle='#53646e';c.fillRect(x+q(23),y+q(13),q(2),q(12));c.fillRect(x+q(23),y+q(24),q(7),q(2));c.fillRect(x+q(12),y+q(31),q(2),q(8));c.fillRect(x+q(12),y+q(36),q(6),q(2));
+   c.fillStyle='#f0f4f2';for(let i=0;i<7;i++)c.fillRect(x+q(3+Math.floor(r()*45)),y+q(3+Math.floor(r()*45)),q(2),q(2));
+ }else if(id==='wood'){
+   c.fillStyle='#e2b474';c.fillRect(x+q(7),y+q(2),q(4),t-q(4));c.fillRect(x+q(26),y+q(4),q(3),t-q(8));
+   c.fillStyle='#89512f';c.fillRect(x+q(15),y+q(2),q(2),t-q(4));c.fillRect(x+q(36),y+q(3),q(2),t-q(6));
+   c.fillStyle='#d09351';c.fillRect(x+q(11),y+q(8),q(2),q(25));c.fillRect(x+q(29),y+q(13),q(2),q(20));c.fillRect(x+q(20),y+q(38),q(9),q(2));
+   c.fillStyle='#6b4229';c.fillRect(x+q(8),y+q(25),q(5),q(2));c.fillRect(x+q(34),y+q(19),q(7),q(2));c.fillRect(x+q(17),y+q(45),q(5),q(2));
+   // pixel knots and grain highlights
+   c.fillStyle='#5e3b28';c.fillRect(x+q(29),y+q(29),q(5),q(2));c.fillRect(x+q(30),y+q(27),q(2),q(6));c.fillStyle='#e9c184';c.fillRect(x+q(31),y+q(29),q(2),q(2));
+ }else if(id==='leaves'){
+   const greens=['#2d7c3e','#388e43','#49a84a','#58b94b','#75ca56','#9bdf65','#246d39'];
+   for(let i=0;i<38;i++){c.fillStyle=greens[Math.floor(r()*greens.length)];const xx=x+q(2+Math.floor(r()*45)),yy=y+q(2+Math.floor(r()*45));c.fillRect(xx,yy,q(2+r()*5),q(2+r()*4))}
+   c.fillStyle='#a9ec75';c.fillRect(x+q(7),y+q(8),q(5),q(3));c.fillRect(x+q(25),y+q(5),q(4),q(2));c.fillRect(x+q(34),y+q(23),q(5),q(3));c.fillRect(x+q(12),y+q(36),q(4),q(2));
+   c.fillStyle='#286d37';c.fillRect(x+q(4),y+q(24),q(3),q(7));c.fillRect(x+q(23),y+q(33),q(7),q(3));c.fillRect(x+q(37),y+q(11),q(3),q(6));
+ }else if(id==='sand'){
+   const sands=['#f5dfa0','#d7be70','#c5a85c','#ead184','#f4e5aa'];
+   for(let i=0;i<28;i++){c.fillStyle=sands[Math.floor(r()*sands.length)];const xx=x+q(2+Math.floor(r()*45)),yy=y+q(2+Math.floor(r()*45));c.fillRect(xx,yy,q(2+r()*4),q(1+r()*2))}
+   // wind-blown ripple bands with intentionally broken ends
+   c.fillStyle='#f7e5af';c.fillRect(x+q(4),y+q(11),q(15),q(2));c.fillRect(x+q(7),y+q(13),q(9),q(2));c.fillRect(x+q(27),y+q(29),q(18),q(2));c.fillRect(x+q(31),y+q(31),q(10),q(2));
+   c.fillStyle='#b99a52';c.fillRect(x+q(4),y+q(24),q(16),q(2));c.fillRect(x+q(8),y+q(26),q(10),q(2));
+ }else if(id==='bedrock'){
+   for(let i=0;i<22;i++){c.fillStyle=['#82919d','#596775','#1f2a34','#455361'][Math.floor(r()*4)];c.fillRect(x+q(2+Math.floor(r()*45)),y+q(2+Math.floor(r()*45)),q(3+r()*8),q(2+r()*6))}
+   c.fillStyle='#adb7ba';c.fillRect(x+q(4),y+q(5),q(10),q(2));c.fillRect(x+q(32),y+q(26),q(7),q(2));c.fillStyle='#151d25';c.fillRect(x+q(18),y+q(18),q(12),q(3));c.fillRect(x+q(23),y+q(21),q(3),q(8));
+ }else if(id==='lava'){
+   const pulse=(Math.sin(animTime*2.5+tx*.8+ty*.4)+1)*.5;
+   c.fillStyle='#c8321c';c.fillRect(x,y+q(39),t,q(13));c.fillStyle='#ff7824';c.fillRect(x+q(2),y+q(9),q(16),q(7));c.fillRect(x+q(22),y+q(28),q(24),q(8));
+   c.fillStyle='#ffb52e';c.fillRect(x+q(4),y+q(10),q(10),q(3));c.fillRect(x+q(25),y+q(29+pulse*4),q(14),q(3));c.fillRect(x+q(31),y+q(8),q(8),q(3));
+   c.fillStyle='#ffe16a';c.fillRect(x+q(7),y+q(10),q(4),q(2));c.fillRect(x+q(29),y+q(30+pulse*4),q(6),q(2));c.fillStyle='#8f271d';c.fillRect(x+q(2),y+q(46),q(21),q(3));
+ }
+ // Shared bevel and surface glints, restrained enough to keep neighbouring tiles seamless.
+ c.fillStyle='#ffffff10';c.fillRect(x,y,t,Math.max(1,q(1)));c.fillStyle='#00000016';c.fillRect(x,y+t-q(2),t,q(2));
+ c.restore();
+}
+function drawSeedSprite(c,id,cx,cy,size){
+ const seedDef=defs[id],base=defs[seedDef?.seedFor]||defs.dirt;const u=size/32;
+ c.save();c.translate(cx,cy);c.scale(u,u);
+ // Pixel seed has a dark contour, material-coloured shell, curved highlight, and tiny sprout tip.
+ c.fillStyle='#142118';c.fillRect(-7,-4,5,10);c.fillRect(-4,-7,9,14);c.fillRect(1,-5,6,10);c.fillRect(-2,-9,5,4);
+ c.fillStyle=base.side;c.fillRect(-5,-5,7,11);c.fillRect(-2,-7,8,12);c.fillRect(1,-4,4,7);
+ c.fillStyle=base.color;c.fillRect(-4,-5,6,9);c.fillRect(-1,-7,6,10);c.fillRect(2,-3,2,5);
+ c.fillStyle='#fff2b8';c.fillRect(-2,-5,3,2);c.fillRect(-1,-7,2,2);
+ c.fillStyle='#8ee66a';c.fillRect(-1,-11,2,4);c.fillRect(1,-12,4,2);c.fillStyle='#c7ff94';c.fillRect(2,-12,2,1);
+ c.restore();
+}
+function drawItemTexture(c,id,cx,cy,size,tx=0,ty=1){
+ if(defs[id]?.seedFor){drawSeedSprite(c,id,cx,cy,size);return}
+ c.save();c.translate(cx-size/2,cy-size/2);c.scale(size/TILE,size/TILE);drawBlock(id,0,0,tx,ty,c,TILE);c.restore();
+}
+function itemIconData(id,size=34){
+ const key=id+':'+size;if(itemIconCache[key])return itemIconCache[key];
+ const can=document.createElement('canvas');can.width=can.height=size;const ic=can.getContext('2d');ic.imageSmoothingEnabled=false;
+ drawItemTexture(ic,id,size/2,size/2,size,0,1);
+ itemIconCache[key]=can.toDataURL('image/png');return itemIconCache[key];
+}
+
+function drawSky(){
+ let g=ctx.createLinearGradient(0,0,0,viewH);g.addColorStop(0,'#73c9ee');g.addColorStop(.65,'#b4e4e7');g.addColorStop(1,'#e4e5c0');ctx.fillStyle=g;ctx.fillRect(0,0,viewW,viewH);
+ const sunX=viewW*.78-camera.x*.025,sunY=85-camera.y*.02;
+ ctx.fillStyle='#fff0a1';ctx.beginPath();ctx.arc(sunX,sunY,25,0,Math.PI*2);ctx.fill();
+ // distant hills
+ for(let layer=0;layer<3;layer++){ctx.fillStyle=['#91cbb6','#78b7a4','#5d9b8a'][layer];ctx.beginPath();ctx.moveTo(0,viewH);
+  let step=70;for(let x=-step;x<viewW+step;x+=step){let yy=viewH*.48+Math.sin((x+camera.x*.12+layer*90)*.008)*(42+layer*12)+layer*35;ctx.lineTo(x,yy)}ctx.lineTo(viewW,viewH);ctx.closePath();ctx.fill()}
+}
+function render(){
+ drawSky();
+ const startX=Math.max(0,Math.floor(camera.x/TILE)-1),endX=Math.min(WORLD_W,Math.ceil((camera.x+viewW)/TILE)+1);
+ const startY=Math.max(0,Math.floor(camera.y/TILE)-1),endY=Math.min(WORLD_H,Math.ceil((camera.y+viewH)/TILE)+1);
+ for(let y=startY;y<endY;y++)for(let x=startX;x<endX;x++){let id=cell(x,y);if(id)drawBlock(id,x*TILE-camera.x,y*TILE-camera.y,x,y)}
+ // Trees grow out of the pot and stay centered over its grid tile. At full size the canopy
+ // can extend into the tile above, while the pot remains the only walk-through planting tile.
+ for(const ps of plantedSeeds){
+   const left=ps.x*TILE-camera.x,top=ps.y*TILE-camera.y,cx=left+TILE/2,groundY=top+TILE-9;
+   const grow=Math.max(.04,Math.min(1,(ps.age||0)/TREE_MATURITY_SECONDS));
+   const mat=defs[ps.id]||defs.dirt;
+   const h=5+grow*TILE*1.42,canopyW=5+grow*TILE*.82;
+   const trunk=ps.id==='stone'?'#82929b':ps.id==='sand'?'#c9ad62':ps.id==='leaves'?'#3c8e43':ps.id==='dirt'?'#9c653e':'#9a6034';
+   const trunkHi=ps.id==='stone'?'#c3d0d4':ps.id==='sand'?'#f0d98d':ps.id==='leaves'?'#78d65a':ps.id==='dirt'?'#c18a59':'#d49a58';
+   ctx.save();ctx.beginPath();ctx.rect(left+2,top-TILE,TILE-4,TILE*2);ctx.clip();
+   // Anchor roots/trunk to the pot's soil line so the plant grows from the planter, not mid-air.
+   ctx.fillStyle='#34291f';ctx.fillRect(cx-10,groundY-2,20,4);ctx.fillStyle='#6b4930';ctx.fillRect(cx-6,groundY-5,12,5);
+   if(grow<.22)drawSeedSprite(ctx,ps.id+'Seed',cx,groundY-5,Math.max(8,8+grow*18));
+   ctx.fillStyle=trunk;ctx.fillRect(cx-Math.max(2,canopyW*.10),groundY-h*.58,Math.max(4,canopyW*.2),h*.58);
+   ctx.fillStyle=trunkHi;ctx.fillRect(cx-Math.max(1,canopyW*.10),groundY-h*.58,2,h*.5);
+   if(ps.id==='stone'){
+     ctx.fillStyle=mat.side;ctx.fillRect(cx-canopyW*.48,groundY-h*.82,canopyW*.44,h*.27);ctx.fillRect(cx+canopyW*.04,groundY-h*.91,canopyW*.42,h*.3);
+     ctx.fillStyle=mat.color;ctx.fillRect(cx-canopyW*.4,groundY-h*.83,canopyW*.29,h*.16);ctx.fillRect(cx+canopyW*.12,groundY-h*.89,canopyW*.25,h*.16);
+   }else if(ps.id==='sand'){
+     ctx.fillStyle='#c5a458';ctx.fillRect(cx-canopyW*.49,groundY-h*.8,canopyW*.42,h*.22);ctx.fillRect(cx+canopyW*.07,groundY-h*.9,canopyW*.42,h*.22);
+     ctx.fillStyle='#f2d98b';ctx.fillRect(cx-canopyW*.4,groundY-h*.8,canopyW*.2,2);ctx.fillRect(cx+canopyW*.16,groundY-h*.9,canopyW*.2,2);
+   }else if(ps.id==='lava'){
+     ctx.fillStyle='#74251c';ctx.fillRect(cx-canopyW*.53,groundY-h*.77,canopyW*.5,h*.3);ctx.fillRect(cx+canopyW*.03,groundY-h*.9,canopyW*.5,h*.32);ctx.fillRect(cx-canopyW*.28,groundY-h,canopyW*.56,h*.26);
+     ctx.fillStyle='#e74720';ctx.fillRect(cx-canopyW*.47,groundY-h*.74,canopyW*.42,h*.24);ctx.fillRect(cx+canopyW*.07,groundY-h*.86,canopyW*.41,h*.25);ctx.fillRect(cx-canopyW*.23,groundY-h*.96,canopyW*.46,h*.2);
+     ctx.fillStyle='#ffb347';ctx.fillRect(cx-canopyW*.32,groundY-h*.89,Math.max(2,canopyW*.15),2);ctx.fillRect(cx+canopyW*.17,groundY-h*.78,Math.max(2,canopyW*.13),2);ctx.fillStyle='#fff0a0';ctx.fillRect(cx-canopyW*.05,groundY-h*.99,Math.max(2,canopyW*.12),2);
+   }else{
+     const leaf=ps.id==='leaves'?'#3c9847':'#4b9d42';
+     const leafHi=ps.id==='leaves'?'#8ce36b':'#83d653';
+     ctx.fillStyle=mat.side;ctx.fillRect(cx-canopyW*.53,groundY-h*.77,canopyW*.5,h*.3);ctx.fillRect(cx+canopyW*.03,groundY-h*.9,canopyW*.5,h*.32);ctx.fillRect(cx-canopyW*.28,groundY-h,canopyW*.56,h*.26);
+     ctx.fillStyle=leaf;ctx.fillRect(cx-canopyW*.47,groundY-h*.74,canopyW*.42,h*.24);ctx.fillRect(cx+canopyW*.07,groundY-h*.86,canopyW*.41,h*.25);ctx.fillRect(cx-canopyW*.23,groundY-h*.96,canopyW*.46,h*.2);
+     ctx.fillStyle=leafHi;ctx.fillRect(cx-canopyW*.32,groundY-h*.89,Math.max(2,canopyW*.15),2);ctx.fillRect(cx+canopyW*.17,groundY-h*.78,Math.max(2,canopyW*.13),2);
+   }
+   if(ps.mature){
+     const fruits=[[-.29,-.63],[.29,-.74],[-.02,-.91]];
+     for(const [fx,fy] of fruits){const fxp=cx+canopyW*fx,fyp=groundY+h*fy;ctx.fillStyle='#c8f6ff22';ctx.fillRect(fxp-5,fyp-5,10,10);ctx.strokeStyle='#d8f5f4cc';ctx.lineWidth=1;ctx.strokeRect(fxp-5,fyp-5,10,10);drawItemTexture(ctx,ps.id,fxp,fyp,7,ps.x,ps.y);}
+   }else if(grow>.7){ctx.fillStyle='#fff4b0aa';ctx.fillRect(cx+canopyW*.2,groundY-h*.78,2,2)}
+   ctx.restore();
+ }
+ // mining progress cracks
+ if(mining){let x=mining.tx*TILE-camera.x,y=mining.ty*TILE-camera.y;ctx.strokeStyle='#49382b99';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x+6,y+5);ctx.lineTo(x+12,y+12);ctx.lineTo(x+8,y+18);ctx.moveTo(x+12,y+12);ctx.lineTo(x+19,y+7);ctx.stroke();ctx.fillStyle='#17212b66';ctx.fillRect(x,y-5,TILE,3);ctx.fillStyle='#d6c18a';ctx.fillRect(x,y-5,TILE*Math.min(1,mining.progress),3)}
+ for(const d of drops){const x=d.x-camera.x,y=d.y-camera.y-Math.sin(animTime*3.2+d.age*1.7)*4;
+   ctx.save();
+   if(d.id==='gem'){
+    // Gem pickups intentionally have no glass frame, border, shadow plate or count text.
+    const gemSizes={1:9,5:12,10:15,50:18,100:22};
+    drawGemPickup(ctx,Math.round(x),Math.round(y),gemSizes[d.value]||9,d.value||1);
+   }else{
+    // Ordinary item drops retain their existing shared pickup frame and quantity label.
+    ctx.translate(Math.round(x),Math.round(y));
+    ctx.fillStyle='#10202a30';ctx.fillRect(-15,13,30,4);
+    ctx.fillStyle='#c8f6ff22';ctx.fillRect(-14,-14,28,28);
+    ctx.fillStyle='#e4fbff38';ctx.fillRect(-13,-13,26,3);ctx.fillRect(-13,-13,3,26);
+    ctx.fillStyle='#8adcf488';ctx.fillRect(11,-12,2,24);ctx.fillRect(-12,11,24,2);
+    ctx.strokeStyle='#e6fbffcc';ctx.lineWidth=1.5;ctx.strokeRect(-14,-14,28,28);
+    drawItemTexture(ctx,d.id,0,0,19,Math.floor(d.x/TILE),Math.floor(d.y/TILE));
+    const stackCount=d.count||1;
+    if(stackCount>1){ctx.fillStyle='#10191e';ctx.fillRect(3,5,13,10);ctx.fillStyle='#f8f2d8';ctx.font='bold 10px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(String(stackCount),15,10);ctx.textAlign='left';ctx.textBaseline='alphabetic';}
+   }
+   ctx.restore();}
+ for(const p of particles){ctx.globalAlpha=Math.max(0,p.life/.7);ctx.fillStyle=p.color;ctx.fillRect(p.x-camera.x,p.y-camera.y,5,5);ctx.globalAlpha=1}
+ // GrowPixel player: compact, square-headed pixel character matching the supplied complete-player reference.
+ const sx=Math.round(player.x-camera.x),sy=Math.round(player.y-camera.y);
+ const walking=Math.abs(player.vx)>18&&player.ground;
+ const jumping=!player.ground;
+ const punchProgress=punchTime>0?Math.max(0,Math.min(1,1-punchTime/0.28)):0;
+ const pose=punchTime>0?'punch':(jumping?'jump':(walking?(Math.floor(walkPhase*2)%2?'walkB':'walkA'):'idle'));
+ if(!window.growPixelPlayerSprites){
+   const make=(pose)=>{
+     const cv=document.createElement('canvas');cv.width=32;cv.height=44;const g=cv.getContext('2d');g.imageSmoothingEnabled=false;
+     const r=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(x,y,w,h)};
+     // rear outline and compact legs
+     r(8,34,7,9,'#66524b');r(18,34,7,9,'#66524b');
+     if(pose==='walkA'){r(7,35,8,7,'#302a50');r(19,33,7,9,'#302a50');r(6,41,9,2,'#29243f');r(19,41,8,2,'#29243f')}
+     else if(pose==='walkB'){r(9,33,7,9,'#302a50');r(17,35,8,7,'#302a50');r(8,41,8,2,'#29243f');r(17,41,9,2,'#29243f')}
+     else if(pose==='jump'){r(7,34,9,7,'#302a50');r(18,34,8,7,'#302a50');r(5,39,9,3,'#29243f');r(20,39,9,3,'#29243f')}
+     else {r(8,34,7,8,'#302a50');r(18,34,7,8,'#302a50');r(7,41,8,2,'#29243f');r(18,41,8,2,'#29243f')}
+     // shirt and arms
+     r(7,22,18,14,'#8b7968');r(8,23,16,12,'#f0e8d7');r(10,24,12,9,'#fff8e9');
+     r(5,24,4,10,'#bda78e');r(6,25,3,8,'#d8c3a8');r(23,24,4,10,'#bda78e');r(23,25,3,8,'#d8c3a8');
+     r(13,21,6,3,'#c9b49a');
+     // large square head with dark pixel outline and warm skin
+     r(3,1,26,22,'#7c6658');r(4,1,24,21,'#c8b397');r(5,2,22,18,'#d8c5a8');r(4,17,24,4,'#c8b397');
+     r(7,3,4,2,'#e4d3b9');r(22,3,4,2,'#e4d3b9');
+     // eyes: bright whites and black pupils, characteristic large square eyes
+     r(8,8,6,6,'#f7f5e9');r(19,8,6,6,'#f7f5e9');r(12,9,3,4,'#171717');r(22,9,3,4,'#171717');
+     r(9,8,2,2,'#ffffff');r(20,8,2,2,'#ffffff');
+     // nose and short straight mouth
+     r(15,14,3,2,'#c3a88a');r(14,17,7,2,'#8d7967');r(16,16,3,1,'#e4cfb2');
+     // subtle ear/cheek pixels
+     r(4,12,2,4,'#c1a98c');r(26,12,2,4,'#c1a98c');
+     if(pose==='punch'){
+       // extend the front arm as a compact blocky punch; keep the character silhouette coherent
+       r(23,24,5,5,'#bda78e');r(26,23,5,5,'#d8c3a8');r(29,22,3,6,'#c8b397');r(30,22,2,4,'#e0c9aa');
+     }
+     if(pose==='jump'){r(9,32,6,2,'#c8b397');r(18,32,6,2,'#c8b397')}
+     return cv;
+   };
+   window.growPixelPlayerSprites={idle:make('idle'),walkA:make('walkA'),walkB:make('walkB'),jump:make('jump'),punch:make('punch')};
+ }
+ const sprite=window.growPixelPlayerSprites[pose]||window.growPixelPlayerSprites.idle;
+ const drawW=52,drawH=72,drawX=Math.round(sx+(player.w-drawW)/2),drawY=Math.round(sy+player.h-drawH);
+ ctx.save();ctx.imageSmoothingEnabled=false;
+ // small grounded shadow, separate from the sprite
+ ctx.fillStyle='#14212c35';ctx.beginPath();ctx.ellipse(sx+player.w/2,sy+player.h-1,13,2,0,0,Math.PI*2);ctx.fill();
+ if(player.face<0){ctx.translate(drawX+drawW,drawY);ctx.scale(-1,1);ctx.drawImage(sprite,0,0,drawW,drawH)}
+ else ctx.drawImage(sprite,drawX,drawY,drawW,drawH);
+ ctx.restore();
+ // Walking over a Seed Pot reveals the planted seed and remaining growth time.
+ const footX=Math.floor((player.x+player.w/2)/TILE),footY=Math.floor((player.y+player.h-2)/TILE);
+ if(cell(footX,footY)==='seedPot'){
+   const ps=plantedSeeds.find(v=>v.x===footX&&v.y===footY);
+   const label=ps?(ps.mature?'MATURE · '+defs[ps.id].name+' Tree':defs[ps.id].name+' Seed · '+Math.ceil(Math.max(0,TREE_MATURITY_SECONDS-ps.age))+'s'):'EMPTY SEED POT';
+   ctx.font='bold 12px system-ui';const tw=ctx.measureText(label).width+22,tx=Math.max(8,Math.min(viewW-tw-8,footX*TILE-camera.x+TILE/2-tw/2)),ty=Math.max(8,player.y-camera.y-44);
+   ctx.fillStyle='#17251eeF';ctx.fillRect(tx,ty,tw,28);ctx.strokeStyle='#d4b77a';ctx.lineWidth=2;ctx.strokeRect(tx+1,ty+1,tw-2,26);ctx.fillStyle='#f6edce';ctx.fillText(label,tx+11,ty+18);
+ }
+ // crosshair-ish action label
+ ctx.fillStyle='#17303cbb';ctx.fillRect(10,viewH-48,Math.max(108,selected==='fist'?112:150),24);ctx.fillStyle='#fff';ctx.font='bold 11px system-ui';ctx.fillText(selected==='fist'?'TOOL: FIST':'PLACE: '+(defs[selected]?.name||'BLOCK').toUpperCase(),18,viewH-32);
+}
+const TREE_MATURITY_SECONDS=30;
+let last=performance.now();
+function frame(now){let dt=Math.min(.033,(now-last)/1000);last=now;if(!gameStarted){render();requestAnimationFrame(frame);return}time+=dt;
+ movePlayer(dt);
+ camera.x=Math.max(0,Math.min(WORLD_W*TILE-viewW,player.x+player.w/2-viewW/2));
+ camera.y=Math.max(0,Math.min(WORLD_H*TILE-viewH,player.y+player.h/2-viewH*.56));
+ dropUpdate(dt);
+ for(let i=plantedSeeds.length-1;i>=0;i--){
+   const ps=plantedSeeds[i];ps.age=(ps.age||0)+dt;
+   if(cell(ps.x,ps.y+1)!==ps.id){plantedSeeds.splice(i,1);continue;}
+   // Growth is a single-tile life cycle, not a multi-tile tree. The mature plant becomes harvestable.
+   if(!ps.mature&&ps.age>=TREE_MATURITY_SECONDS){ps.mature=true;burst((ps.x+.5)*TILE,(ps.y+.5)*TILE,defs[ps.id].color,9);say(defs[ps.id].name+' tree is mature — punch it to harvest');}
+ }
+ if(mouse.down){const tx=Math.floor((mouse.x+camera.x)/TILE),ty=Math.floor((mouse.y+camera.y)/TILE);mineAt((tx+.5)*TILE,(ty+.5)*TILE)}else mining=null;
+ if(mouse.right&&actionCooldown<=0){placeAt(mouse.x+camera.x,mouse.y+camera.y);actionCooldown=.13}
+ actionCooldown-=dt;
+ for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=220*dt;p.life-=dt;if(p.life<=0)particles.splice(i,1)}
+ if(toastTimer>0){toastTimer-=dt;if(toastTimer<=0)document.getElementById('toast').style.opacity=0}
+ render();requestAnimationFrame(frame)}
+function pointerPos(e){const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+canvas.addEventListener('pointermove',e=>{mouse={...mouse,...pointerPos(e)}});
+canvas.addEventListener('pointerdown',e=>{canvas.focus();const p=pointerPos(e);mouse.x=p.x;mouse.y=p.y;if(e.button===2){e.preventDefault();placeAt(mouse.x+camera.x,mouse.y+camera.y)}else if(selected==='fist'){mouse.down=true;mineAt(mouse.x+camera.x,mouse.y+camera.y)}else{mouse.down=false;placeAt(mouse.x+camera.x,mouse.y+camera.y)}});
+window.addEventListener('pointerup',e=>{if(e.button!==2){mouse.down=false;mining=null}});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('keydown',e=>{if([' ','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))e.preventDefault();keys[e.key]=true;if(/^[1-9]$/.test(e.key)){const entry=hotbarEntries()[Number(e.key)-1];if(entry?.special){openModal('inventory');return}if(entry&&!entry.empty){selected=entry.id;mining=null;updateUI()}}if(e.key.toLowerCase()==='e'){const slots=['fist',...hotOrder.filter(id=>(inventory[id]||0)>0)];selected=slots[(slots.indexOf(selected)+1)%slots.length];updateUI()}});
+window.addEventListener('keyup',e=>{keys[e.key]=false});
+function mobileAction(action){if(action==='jump'){keys.jump=true;return}}
+const joystick=document.getElementById('joystick'),joyknob=document.getElementById('joyknob');let joyPointer=null;
+function resetJoy(){keys.left=false;keys.right=false;joyPointer=null;if(joyknob)joyknob.style.transform='translate(0px,0px)'}
+function moveJoy(e){if(joyPointer!==e.pointerId)return;const r=joystick.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2),knobW=joyknob?.offsetWidth||56,knobH=joyknob?.offsetHeight||56,limitX=Math.max(24,(r.width-knobW)/2-8),limitY=Math.max(8,(r.height-knobH)/2-5),vx=Math.max(-limitX,Math.min(limitX,dx)),vy=Math.max(-limitY,Math.min(limitY,dy));keys.left=vx < -12;keys.right=vx > 12;joyknob.style.transform=`translate(${vx}px,${vy}px)`}
+joystick.addEventListener('pointerdown',e=>{e.preventDefault();joyPointer=e.pointerId;joystick.setPointerCapture(e.pointerId);moveJoy(e)});joystick.addEventListener('pointermove',moveJoy);['pointerup','pointercancel','lostpointercapture'].forEach(ev=>joystick.addEventListener(ev,resetJoy));
+document.querySelectorAll('[data-tap]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();mobileAction(b.dataset.tap);if(b.dataset.tap==='jump')keys.jump=true});if(b.dataset.tap==='jump'){['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,()=>{keys.jump=false}))}});
+function saveGame(show=true){const data={world,player:{x:player.x,y:player.y},inventory,selected,coins,gems,worldSeed,worldName,plantedSeeds};try{localStorage.setItem('growPixelSave',JSON.stringify(data));if(show)say('World saved on this device ✓')}catch(e){say('Could not save in this browser')}}
+function loadGame(){try{const s=localStorage.getItem('growPixelSave');if(!s)return false;const d=JSON.parse(s);if(!d.world||d.world.length!==WORLD_H)return false;world=d.world;player.x=d.player.x;player.y=d.player.y;player.vx=player.vy=0;inventory={...Object.fromEntries(hotOrder.map(id=>[id,0])),...d.inventory};if(d.inventory?.seedPot===undefined)inventory.seedPot=10;delete inventory.grass;plantedSeeds=Array.isArray(d.plantedSeeds)?d.plantedSeeds:[];selected=d.selected||'fist';if(selected!=='fist'&&!(inventory[selected]>0))selected='fist';coins=d.coins||0;gems=Math.max(0,Number(d.gems)||0);worldSeed=d.worldSeed||1;worldName=d.worldName||'Meadow-01';drops=[];particles=[];updateUI();return true}catch(e){return false}}
+function openModal(kind){
+ const modal=document.getElementById('modal');let body='';
+ if(kind==='gemStore'){
+  body=`<div class="modalhead"><div><h2 id="modalTitle">Gem Store</h2><p>Spend your collected Gems here</p></div><button class="closebtn" data-close>×</button></div><div class="gem-wallet"><span class="gem-wallet-icon">◆</span><div><small>YOUR GEM BALANCE</small><strong>${gems.toLocaleString()}</strong></div></div><div class="store-empty"><strong>Welcome to the Gem Store</strong><p>Your Gems are earned by breaking blocks. The store catalogue can be added here as its items and prices are defined.</p></div><div class="modalactions"><button class="action primary" data-close>Back to world</button></div>`;
+ } else if(kind==='inventory'){
+  const owned=hotOrder.filter(id=>(inventory[id]||0)>0);
+  const items=owned.map(id=>`<div class="invitem"><img class="item-icon" src="${itemIconData(id,42)}" alt=""><span>${defs[id].name}</span><b>× ${inventory[id]}</b></div>`).join('');
+  body=`<div class="modalhead"><div><h2 id="modalTitle">Inventory</h2><p>Only items you have collected appear here</p></div><button class="closebtn" data-close>×</button></div>${items?`<div class="modalgrid">${items}</div>`:'<div class="empty-inventory"><span>▦</span><strong>Your inventory is empty</strong><p>Break a block with your fist and walk over its drop to collect it.</p></div>'}<p class="modalcopy">Select the Fist to break blocks within 3 tiles. Blocks, seeds and Gems drop independently. Place a Seed Pot, then select a seed and plant it inside the pot. Pots are walk-through planters and return to inventory when broken. Seeds grow into a small block-themed tree contained entirely within one grid tile. At maturity it displays the matching block texture; punch it to harvest a preset random number of blocks. A seed only grows above matching ground.</p><div class="modalactions"><button class="action primary" data-close>Back to world</button></div>`;
+ } else {
+  body=`<div class="modalhead"><div><h2 id="modalTitle">Game menu</h2><p>World and display controls</p></div><button class="closebtn" data-close>×</button></div><div class="menurow"><span>Current world</span><span class="tag">${worldName}</span></div><div class="menurow"><span>Collected blocks</span><b>${Object.values(inventory).reduce((a,b)=>a+b,0)}</b></div><div class="menurow"><span>Save status</span><span class="tag">LOCAL SAVE</span></div><div class="modalactions"><button class="action" id="modalSave">✓ Save world</button><button class="action primary" id="modalNew">＋ World menu</button></div><div class="modalactions"><button class="action" id="fullscreenBtn">⛶ Toggle fullscreen</button></div><div class="modalactions"><button class="action" id="soundToggleBtn">🔊 Sound effects: ${soundEnabled?'On':'Off'}</button><button class="action" id="musicToggleBtn">♫ Music: ${musicEnabled?'On':'Off'}</button></div><p class="modalcopy">This prototype saves worlds on this device. Multiplayer is not enabled.</p>`;
+ }
+ modal.innerHTML=body;document.getElementById('modalback').classList.add('open');
+ modal.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
+ const ms=modal.querySelector('#modalSave');if(ms)ms.addEventListener('click',()=>{saveGame(true);closeModal()});
+ const mn=modal.querySelector('#modalNew');if(mn)mn.addEventListener('click',()=>{closeModal();document.getElementById('worldScreen').classList.add('visible');document.getElementById('worldNameInput').value=worldName;});
+ const fs=modal.querySelector('#fullscreenBtn');if(fs)fs.addEventListener('click',async()=>{try{if(!document.fullscreenElement&&document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else if(document.fullscreenElement&&document.exitFullscreen)await document.exitFullscreen();}catch(e){say('Fullscreen is not supported in this browser')}});
+ const sb=modal.querySelector('#soundToggleBtn');if(sb)sb.addEventListener('click',()=>{toggleSound();openModal('menu')});
+ const mb=modal.querySelector('#musicToggleBtn');if(mb)mb.addEventListener('click',()=>{toggleMusic();openModal('menu')});
+
+}
+function closeModal(){document.getElementById('modalback').classList.remove('open')}
+function createNamedWorld(name){
+ const clean=(name||'').trim().slice(0,24);
+ if(!clean){say('Enter a world name first');return}
+ worldName=clean;
+ // Use the name as a deterministic seed, so the same name recreates the same world.
+ let seed=2166136261;for(let i=0;i<clean.length;i++){seed^=clean.charCodeAt(i);seed=Math.imul(seed,16777619)}
+ seed=(seed>>>0)||1;
+ inventory=Object.fromEntries(hotOrder.map(id=>[id,0]));inventory.seedPot=10;selected='fist';plantedSeeds=[];
+ generate(seed);saveGame(false);document.getElementById('worldScreen').classList.remove('visible');
+ gameStarted=true;document.getElementById('orientationGate').classList.add('hidden');updateUI();resize();render();
+}
+function createNewWorld(){document.getElementById('worldScreen').classList.add('visible');document.getElementById('worldNameInput').value='';document.getElementById('worldNameInput').focus()}
+document.getElementById('gemStoreBtn').addEventListener('click',()=>openModal('gemStore'));
+document.getElementById('menuBtn').addEventListener('click',()=>openModal('menu'));
+document.getElementById('modalback').addEventListener('click',e=>{if(e.target.id==='modalback')closeModal()});
+window.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+const gate=document.getElementById('orientationGate'),enterBtn=document.getElementById('enterGame'),gateMessage=document.getElementById('gateMessage');let gameStarted=false;
+function orientationOkay(){return true}
+function updateGate(){if(!gameStarted&&!document.getElementById('worldScreen')?.classList.contains('visible')){gate.classList.remove('hidden');enterBtn.style.display='inline-block';gateMessage.textContent='GrowPixel adapts automatically to portrait or landscape. Rotate your device whenever you prefer.';}else if(document.getElementById('worldScreen')?.classList.contains('visible'))gate.classList.add('hidden');}
+enterBtn.addEventListener('click',async()=>{try{const root=document.documentElement;if(!document.fullscreenElement&&root.requestFullscreen)await root.requestFullscreen()}catch(e){}gameStarted=true;gate.classList.add('hidden');resize();render();});
+window.addEventListener('resize',()=>{resize();if(!gameStarted)updateGate();});window.addEventListener('orientationchange',()=>{setTimeout(()=>{resize();if(!gameStarted)updateGate();},120)});document.addEventListener('fullscreenchange',()=>{resize();if(!gameStarted)updateGate()});
+window.addEventListener('beforeunload',()=>saveGame(false));
+try {
+  const hadSave=loadGame();
+  if(!hadSave)generate(Math.floor(Math.random()*0x7fffffff)+1);
+  updateUI();
+  resize();render();
+  const worldScreen=document.getElementById('worldScreen');
+  worldScreen.classList.add('visible');
+  document.getElementById('createWorldBtn').addEventListener('click',()=>createNamedWorld(document.getElementById('worldNameInput').value));
+  document.getElementById('worldNameInput').addEventListener('keydown',e=>{if(e.key==='Enter')createNamedWorld(e.target.value)});
+  document.getElementById('fullscreenStartBtn').addEventListener('click',async()=>{try{if(!document.fullscreenElement&&document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else if(document.fullscreenElement&&document.exitFullscreen)await document.exitFullscreen()}catch(e){say('Fullscreen is not supported in this browser')}});
+  document.getElementById('continueWorldBtn').addEventListener('click',()=>{
+    if(!hadSave){say('No saved world yet — create one first');return}
+    worldScreen.classList.remove('visible');gameStarted=true;updateUI();resize();render();
+  });
+  requestAnimationFrame(frame);
+} catch(err) {
+  console.error('GrowPixel startup error:', err);
+  const hint=document.getElementById('hint');
+  if(hint) hint.innerHTML='<strong>WORLD FAILED TO START</strong>Reload this page. If the problem continues, send a screenshot.';
+}
+})();
+</script>
+</body>
+</html>

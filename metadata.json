@@ -1,0 +1,6 @@
+{
+  "name": "GrowPixel",
+  "description": "2D side-view pixel sandbox game with mining, seed planting, tree growing, and gem economy for Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

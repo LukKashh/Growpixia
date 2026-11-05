@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for the 11 compiled gameplay requirements and the 5-variety gem sprite sheet:\n1. Block breaking duration & hold-to-break animation with progressive cracks.\n2. Fix block placement position reset by decoupling engine re-mounts from inventory state.\n3. Ground-level spawn alignment and dedicated indestructible Spawn Door block with leave-world punch interaction.\n4. Fullscreen toggle in-game menu option.\n5. Fixed 3-slot recent-item toolbar with automatic empty slot restoration and separate Fist control.\n6. Exact in-world texture scaling for toolbar and inventory item representations.\n7. Lock placement non-overlap clamping and strict owner-only destruction returning the lock to inventory.\n8. Official 5-gem variety sprite sheet extraction with transparent background removal.",
+  "updatedAt":  "2026-10-30T21:18:13.268976687Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

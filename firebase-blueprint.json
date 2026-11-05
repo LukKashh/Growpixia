@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered player profile, gems, and inventory",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 16,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "gems": {
+          "type": "number",
+          "description": "Gem balance"
+        }
+      },
+      "required": ["username", "gems"]
+    },
+    "World": {
+      "title": "World",
+      "description": "Multiplayer sandbox world data",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "owner": {
+          "type": "string"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "User account documents"
+    },
+    "/worlds/{worldName}": {
+      "schema": {
+        "$ref": "#/entities/World"
+      },
+      "description": "World state documents"
+    }
+  }
+}
