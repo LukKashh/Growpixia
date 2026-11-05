@@ -24,7 +24,6 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 const DATA_DIR = path.join(__dirname, 'data');
 const WORLDS_DIR = path.join(DATA_DIR, 'worlds');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
-const AUCTIONS_FILE = path.join(DATA_DIR, 'auctions.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(WORLDS_DIR)) fs.mkdirSync(WORLDS_DIR, { recursive: true });
@@ -42,20 +41,24 @@ try {
   console.warn('Firebase server init warning:', e);
 }
 
-// --- Supabase Authoritative Token Verification Setup ---
+// --- Supabase Authoritative Token Verification & Economy Setup ---
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 const isRemoteSupabaseConfigured = Boolean(
   SUPABASE_URL &&
   !SUPABASE_URL.includes('placeholder') &&
   !SUPABASE_URL.includes('example.supabase.co') &&
-  (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY)
+  SUPABASE_SERVICE_ROLE_KEY &&
+  !SUPABASE_SERVICE_ROLE_KEY.includes('placeholder')
 );
 
+if (!isRemoteSupabaseConfigured) {
+  console.warn('WARNING: SUPABASE_SERVICE_ROLE_KEY is required for authoritative player persistence. Economy operations will be safely rejected until configured.');
+}
+
 const supabaseAdmin = isRemoteSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY, {
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false }
     })
   : null;
@@ -71,7 +74,7 @@ async function verifyPlayerToken(token: string): Promise<VerifiedIdentity | null
   const cleanToken = token.trim();
   if (!cleanToken) return null;
 
-  // 1. Verify via official Supabase Auth API if remote Supabase is configured
+  // STRICT: Verify via official Supabase Auth API
   if (supabaseAdmin) {
     try {
       const { data, error } = await supabaseAdmin.auth.getUser(cleanToken);
@@ -94,45 +97,8 @@ async function verifyPlayerToken(token: string): Promise<VerifiedIdentity | null
     }
   }
 
-  // 2. Verify against local HMAC secret (for local Edge Function authoritative handlers)
-  try {
-    const secret = process.env.AUTH_HMAC_SECRET;
-    if (secret) {
-      const parts = cleanToken.split('.');
-      if (parts.length === 3) {
-        const payloadB64 = parts[1];
-        const sigB64 = parts[2];
-        const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
-
-        if (crypto.timingSafeEqual(Buffer.from(sigB64), Buffer.from(expectedSig))) {
-          const payloadJson = Buffer.from(payloadB64, 'base64url').toString('utf-8');
-          const payload = JSON.parse(payloadJson);
-
-          // Check expiration
-          if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-            console.warn('Token verification failed: Session token has expired.');
-            return null;
-          }
-
-          const userId = payload.sub;
-          if (userId) {
-            const acc = Object.values(accountsCache).find(
-              (a) => a.id === userId || `user_${deriveHmacIdentifier(a.username)}@growpixel.internal` === payload.email
-            );
-            if (acc) {
-              return {
-                userId: acc.id,
-                username: acc.username
-              };
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Local HMAC token verification exception:', e);
-  }
-
+  // Token is invalid, expired, or unverifiable
+  console.warn('Authentication rejected: Invalid or unverified token.');
   return null;
 }
 
@@ -162,7 +128,7 @@ function loadAccounts(): Record<string, Account> {
 
 function saveAccounts(accounts: Record<string, Account>) {
   try {
-    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf-8');
+    // Legacy JSON write disabled - Supabase is authoritative for player economy
     if (firestoreDb) {
       for (const [key, acc] of Object.entries(accounts)) {
         setDoc(doc(firestoreDb, 'users', key), acc).catch(() => {});
@@ -175,52 +141,6 @@ function saveAccounts(accounts: Record<string, Account>) {
 
 // In-memory accounts cache
 const accountsCache: Record<string, Account> = loadAccounts();
-
-// --- Authoritative Auction Store & Data Model ---
-export interface AuctionItem {
-  id: string;
-  sellerId: string;
-  sellerUsername: string;
-  itemId: string;
-  itemCount: number;
-  startingBid: number;
-  currentBid: number;
-  buyNowPrice?: number | null;
-  highestBidderId?: string | null;
-  highestBidderUsername?: string | null;
-  createdAt: number;
-  expiresAt: number;
-  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED_NO_BIDS';
-  cancelledAt?: number | null;
-  cancelledBy?: string | null;
-  cancellationReason?: string | null;
-}
-
-function loadAuctions(): Record<string, AuctionItem> {
-  try {
-    if (fs.existsSync(AUCTIONS_FILE)) {
-      return JSON.parse(fs.readFileSync(AUCTIONS_FILE, 'utf-8'));
-    }
-  } catch (err) {
-    console.error('Error loading auctions:', err);
-  }
-  return {};
-}
-
-function saveAuctions(auctions: Record<string, AuctionItem>) {
-  try {
-    fs.writeFileSync(AUCTIONS_FILE, JSON.stringify(auctions, null, 2), 'utf-8');
-    if (firestoreDb) {
-      for (const [key, auc] of Object.entries(auctions)) {
-        setDoc(doc(firestoreDb, 'auctions', key), auc).catch(() => {});
-      }
-    }
-  } catch (err) {
-    console.error('Error saving auctions:', err);
-  }
-}
-
-const auctionsCache: Record<string, AuctionItem> = loadAuctions();
 
 function broadcastToAllPlayers(payloadStr: string) {
   for (const room of activeRooms.values()) {
@@ -244,287 +164,90 @@ function notifyUserWS(username: string, payloadObj: any) {
   }
 }
 
-function createAuctionHandler(sellerUsername: string, itemId: string, itemCount: number, startingBid: number, buyNowPrice?: number | null, durationMinutes: number = 15) {
-  const cleanSeller = sellerUsername.trim().toLowerCase();
-  const acc = accountsCache[cleanSeller];
-  if (!acc) throw new Error('User not found.');
-
-  const count = Math.max(1, Math.floor(Number(itemCount) || 1));
-  const startBid = Math.max(1, Math.floor(Number(startingBid) || 1));
-  const buyNow = buyNowPrice ? Math.max(startBid + 1, Math.floor(Number(buyNowPrice))) : null;
-  const durMs = Math.max(1, Math.min(1440, Math.floor(Number(durationMinutes) || 15))) * 60 * 1000;
-
-  if ((acc.inventory[itemId] || 0) < count) {
-    throw new Error(`Insufficient inventory: You do not have x${count} ${itemId} to list for auction.`);
-  }
-
-  // Deduct items from seller's inventory (escrowed into auction)
-  acc.inventory[itemId] = (acc.inventory[itemId] || 0) - count;
-  saveAccounts(accountsCache);
-
-  const auctionId = 'auc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  const now = Date.now();
-  const auction: AuctionItem = {
-    id: auctionId,
-    sellerId: acc.id,
-    sellerUsername: acc.username,
-    itemId,
-    itemCount: count,
-    startingBid: startBid,
-    currentBid: startBid,
-    buyNowPrice: buyNow,
-    highestBidderId: null,
-    highestBidderUsername: null,
-    createdAt: now,
-    expiresAt: now + durMs,
-    status: 'ACTIVE'
-  };
-
-  auctionsCache[auctionId] = auction;
-  saveAuctions(auctionsCache);
-
-  notifyUserWS(acc.username, {
-    type: 'inventory:sync',
-    inventory: acc.inventory,
-    gems: acc.gems
-  });
-
-  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
-  broadcastToAllPlayers(listPayload);
-
-  return auction;
+// --- Authoritative Supabase-Backed Player Economy Persistence ---
+export interface PlayerEconomyState {
+  gems: number;
+  inventory: Record<string, number>;
 }
 
-function placeBidHandler(bidderUsername: string, auctionId: string, bidAmount: number) {
-  const cleanBidder = bidderUsername.trim().toLowerCase();
-  const bidderAcc = accountsCache[cleanBidder];
-  if (!bidderAcc) throw new Error('User not found.');
-
-  const auction = auctionsCache[auctionId];
-  if (!auction) throw new Error('Auction not found.');
-  if (auction.status !== 'ACTIVE' || Date.now() >= auction.expiresAt) {
-    throw new Error('Auction is no longer active.');
+async function loadPlayerData(userId: string): Promise<PlayerEconomyState> {
+  if (!supabaseAdmin) {
+    throw new Error('Authoritative Supabase database is not configured (missing SUPABASE_SERVICE_ROLE_KEY).');
   }
 
-  if (auction.sellerUsername.toLowerCase() === cleanBidder) {
-    throw new Error('You cannot bid on your own auction.');
+  // 1. Load authoritative Gems balance from profiles table
+  const { data: profile, error: pError } = await supabaseAdmin
+    .from('profiles')
+    .select('gems')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (pError) {
+    console.error(`Error loading player profile from Supabase for user ${userId}:`, pError);
+    throw new Error(`Database error loading profile: ${pError.message}`);
   }
 
-  const amount = Math.floor(Number(bidAmount) || 0);
-
-  const minRequiredBid = auction.highestBidderUsername
-    ? auction.currentBid + Math.max(1, Math.floor(auction.currentBid * 0.05))
-    : auction.startingBid;
-
-  if (amount < minRequiredBid) {
-    throw new Error(`Bid amount must be at least ${minRequiredBid} gems.`);
+  if (!profile) {
+    throw new Error(`Authoritative profile not found in Supabase for user: ${userId}`);
   }
 
-  if (bidderAcc.gems < amount) {
-    throw new Error(`Insufficient gems balance. You need ${amount} gems to place this bid.`);
+  // 2. Load authoritative inventory item rows from player_inventory table
+  const { data: inventoryData, error: iError } = await supabaseAdmin
+    .from('player_inventory')
+    .select('item_id, quantity')
+    .eq('user_id', userId);
+
+  if (iError) {
+    console.error(`Error loading player inventory from Supabase for user ${userId}:`, iError);
+    throw new Error(`Database error loading inventory: ${iError.message}`);
   }
 
-  // 1. Refund previous highest bidder if one exists
-  if (auction.highestBidderUsername && auction.currentBid > 0) {
-    const prevBidderClean = auction.highestBidderUsername.toLowerCase();
-    const prevBidderAcc = accountsCache[prevBidderClean];
-    if (prevBidderAcc) {
-      prevBidderAcc.gems += auction.currentBid;
-      saveAccounts(accountsCache);
-      notifyUserWS(prevBidderAcc.username, {
-        type: 'inventory:sync',
-        gems: prevBidderAcc.gems,
-        inventory: prevBidderAcc.inventory
-      });
-      notifyUserWS(prevBidderAcc.username, {
-        type: 'notify',
-        text: `💰 Outbid on ${auction.itemId}! Refunded ${auction.currentBid} gems.`
-      });
-    }
-  }
-
-  // 2. Escrow gems from new bidder
-  bidderAcc.gems -= amount;
-  auction.currentBid = amount;
-  auction.highestBidderId = bidderAcc.id;
-  auction.highestBidderUsername = bidderAcc.username;
-
-  // Check if buyNowPrice was met or exceeded
-  if (auction.buyNowPrice && amount >= auction.buyNowPrice) {
-    auction.status = 'COMPLETED';
-    bidderAcc.inventory[auction.itemId] = (bidderAcc.inventory[auction.itemId] || 0) + auction.itemCount;
-
-    const sellerClean = auction.sellerUsername.toLowerCase();
-    const sellerAcc = accountsCache[sellerClean];
-    if (sellerAcc) {
-      sellerAcc.gems += amount;
-      notifyUserWS(sellerAcc.username, {
-        type: 'inventory:sync',
-        gems: sellerAcc.gems,
-        inventory: sellerAcc.inventory
-      });
-      notifyUserWS(sellerAcc.username, {
-        type: 'notify',
-        text: `🎉 Your auction for ${auction.itemId} x${auction.itemCount} was bought out by ${bidderAcc.username} for ${amount} gems!`
-      });
-    }
-  }
-
-  saveAuctions(auctionsCache);
-  saveAccounts(accountsCache);
-
-  notifyUserWS(bidderAcc.username, {
-    type: 'inventory:sync',
-    gems: bidderAcc.gems,
-    inventory: bidderAcc.inventory
-  });
-
-  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
-  broadcastToAllPlayers(listPayload);
-
-  return auction;
-}
-
-function cancelAuctionHandler(cancellerUsername: string, auctionId: string) {
-  const cleanCanceller = cancellerUsername.trim().toLowerCase();
-  const auction = auctionsCache[auctionId];
-  if (!auction) throw new Error('Auction not found.');
-
-  if (auction.status !== 'ACTIVE') {
-    throw new Error(`Cannot cancel auction: Current status is '${auction.status}'.`);
-  }
-
-  const isSeller = auction.sellerUsername.toLowerCase() === cleanCanceller;
-  if (!isSeller) {
-    throw new Error('Unauthorized: Only the seller can cancel this auction.');
-  }
-
-  // 1. Mark auction status as CANCELLED
-  auction.status = 'CANCELLED';
-  auction.cancelledAt = Date.now();
-  auction.cancelledBy = auction.sellerUsername;
-  auction.cancellationReason = 'Cancelled by seller before finish.';
-
-  // 2. Refund the highest bidder (if any bid was active)
-  if (auction.highestBidderUsername && auction.currentBid > 0) {
-    const bidderClean = auction.highestBidderUsername.toLowerCase();
-    const bidderAcc = accountsCache[bidderClean];
-    if (bidderAcc) {
-      bidderAcc.gems += auction.currentBid;
-      notifyUserWS(bidderAcc.username, {
-        type: 'inventory:sync',
-        gems: bidderAcc.gems,
-        inventory: bidderAcc.inventory
-      });
-      notifyUserWS(bidderAcc.username, {
-        type: 'notify',
-        text: `🔒 Auction for ${auction.itemId} x${auction.itemCount} was cancelled by the seller. Your bid of ${auction.currentBid} gems was fully refunded.`
-      });
-    }
-  }
-
-  // 3. Return seller's escrowed items to inventory
-  const sellerAcc = accountsCache[cleanCanceller];
-  if (sellerAcc) {
-    sellerAcc.inventory[auction.itemId] = (sellerAcc.inventory[auction.itemId] || 0) + auction.itemCount;
-    notifyUserWS(sellerAcc.username, {
-      type: 'inventory:sync',
-      inventory: sellerAcc.inventory,
-      gems: sellerAcc.gems
-    });
-    notifyUserWS(sellerAcc.username, {
-      type: 'notify',
-      text: `📦 Your auction for ${auction.itemId} x${auction.itemCount} was cancelled. Items returned to your inventory.`
-    });
-  }
-
-  saveAccounts(accountsCache);
-  saveAuctions(auctionsCache);
-
-  const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
-  broadcastToAllPlayers(listPayload);
-
-  return auction;
-}
-
-function buyNowAuctionHandler(buyerUsername: string, auctionId: string) {
-  const auction = auctionsCache[auctionId];
-  if (!auction) throw new Error('Auction not found.');
-  if (auction.status !== 'ACTIVE' || Date.now() >= auction.expiresAt) {
-    throw new Error('Auction is no longer active.');
-  }
-  if (!auction.buyNowPrice) {
-    throw new Error('This auction does not have a Buy Now option.');
-  }
-
-  return placeBidHandler(buyerUsername, auctionId, auction.buyNowPrice);
-}
-
-// Background timer to automatically settle or expire active auctions when time expires
-setInterval(() => {
-  const now = Date.now();
-  let changed = false;
-
-  for (const auc of Object.values(auctionsCache)) {
-    if (auc.status === 'ACTIVE' && now >= auc.expiresAt) {
-      changed = true;
-      if (auc.highestBidderUsername && auc.currentBid > 0) {
-        auc.status = 'COMPLETED';
-        const winnerClean = auc.highestBidderUsername.toLowerCase();
-        const winnerAcc = accountsCache[winnerClean];
-        if (winnerAcc) {
-          winnerAcc.inventory[auc.itemId] = (winnerAcc.inventory[auc.itemId] || 0) + auc.itemCount;
-          notifyUserWS(winnerAcc.username, {
-            type: 'inventory:sync',
-            inventory: winnerAcc.inventory,
-            gems: winnerAcc.gems
-          });
-          notifyUserWS(winnerAcc.username, {
-            type: 'notify',
-            text: `🏆 You won the auction for ${auc.itemId} x${auc.itemCount} for ${auc.currentBid} gems!`
-          });
-        }
-        const sellerClean = auc.sellerUsername.toLowerCase();
-        const sellerAcc = accountsCache[sellerClean];
-        if (sellerAcc) {
-          sellerAcc.gems += auc.currentBid;
-          notifyUserWS(sellerAcc.username, {
-            type: 'inventory:sync',
-            gems: sellerAcc.gems,
-            inventory: sellerAcc.inventory
-          });
-          notifyUserWS(sellerAcc.username, {
-            type: 'notify',
-            text: `💰 Your auction for ${auc.itemId} x${auc.itemCount} sold to ${auc.highestBidderUsername} for ${auc.currentBid} gems!`
-          });
-        }
-      } else {
-        auc.status = 'EXPIRED_NO_BIDS';
-        const sellerClean = auc.sellerUsername.toLowerCase();
-        const sellerAcc = accountsCache[sellerClean];
-        if (sellerAcc) {
-          sellerAcc.inventory[auc.itemId] = (sellerAcc.inventory[auc.itemId] || 0) + auc.itemCount;
-          notifyUserWS(sellerAcc.username, {
-            type: 'inventory:sync',
-            inventory: sellerAcc.inventory,
-            gems: sellerAcc.gems
-          });
-          notifyUserWS(sellerAcc.username, {
-            type: 'notify',
-            text: `⌛ Your auction for ${auc.itemId} x${auc.itemCount} expired with no bids. Item returned.`
-          });
-        }
+  const inventory: Record<string, number> = {};
+  if (inventoryData) {
+    for (const row of inventoryData) {
+      if (row.quantity > 0) {
+        inventory[row.item_id] = row.quantity;
       }
     }
   }
 
-  if (changed) {
-    saveAccounts(accountsCache);
-    saveAuctions(auctionsCache);
-    const listPayload = JSON.stringify({ type: 'auction:list', auctions: Object.values(auctionsCache) });
-    broadcastToAllPlayers(listPayload);
+  return {
+    gems: Math.max(0, Number(profile.gems || 0)),
+    inventory
+  };
+}
+
+async function updatePlayerEconomy(
+  userId: string,
+  gemsDelta: number,
+  inventoryDelta: Record<string, number> = {},
+  idempotencyKey?: string
+): Promise<PlayerEconomyState> {
+  if (!supabaseAdmin) {
+    throw new Error('Authoritative Supabase database is not configured (missing SUPABASE_SERVICE_ROLE_KEY).');
   }
-}, 3000);
+
+  const { data, error } = await supabaseAdmin.rpc('update_player_economy', {
+    p_user_id: userId,
+    p_gems_delta: gemsDelta,
+    p_inventory_delta: inventoryDelta,
+    p_idempotency_key: idempotencyKey || null
+  });
+
+  if (error) {
+    console.error(`Error in Supabase update_player_economy for user ${userId}:`, error);
+    throw new Error(error.message || 'Database economy transaction failed.');
+  }
+
+  if (!data || typeof data.gems !== 'number') {
+    throw new Error('Invalid response payload received from update_player_economy RPC.');
+  }
+
+  return {
+    gems: Math.max(0, Number(data.gems)),
+    inventory: (data.inventory as Record<string, number>) || {}
+  };
+}
 
 // Default starting inventory for new players
 function getStarterInventory(): Record<string, number> {
@@ -565,12 +288,8 @@ function createSessionTokens(userId: string, email: string) {
 }
 
 // Unified Register Handler
-const handleRegisterPlayer = (req: Request, res: Response) => {
+const handleRegisterPlayer = async (req: Request, res: Response) => {
   try {
-    if (!process.env.AUTH_HMAC_SECRET) {
-      return res.status(500).json({ error: 'Server configuration error: AUTH_HMAC_SECRET is missing.' });
-    }
-
     const { username, password, confirmPassword } = req.body;
     const clean = (username || '').trim();
     if (!clean || clean.length < 3 || clean.length > 16 || !/^[a-zA-Z0-9_-]+$/.test(clean)) {
@@ -583,11 +302,87 @@ const handleRegisterPlayer = (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
-    // Case-insensitive uniqueness check
+    if (supabaseAdmin) {
+      // Authoritative Supabase Auth Path
+      const internalEmail = `${clean.toLowerCase()}@growpixel.internal`;
+      
+      // 1. Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email: internalEmail,
+        password: password,
+        user_metadata: { username: clean },
+        email_confirm: true
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          return res.status(409).json({ error: 'Username is already taken.' });
+        }
+        return res.status(400).json({ error: authError.message });
+      }
+
+      const user = authData.user;
+      if (!user) throw new Error('Failed to create user record.');
+
+      // 2. Initial profile setup (Gems and recovery code hash handled in DB/Server)
+      // Note: profiles table usually has a trigger or we insert here.
+      // We will rely on the profiles table existing and being linkable by ID.
+      const { error: profError } = await supabaseAdmin
+        .from('profiles')
+        .upsert({ id: user.id, username: clean, gems: 0 });
+
+      if (profError) {
+        console.error('Failed to create profile record:', profError);
+      }
+
+      // Generate recovery code (stored in public.recovery_codes via migration 0)
+      const rawRecoveryCode = crypto.randomBytes(16).toString('hex');
+      const recoveryHash = crypto.createHash('sha256').update(rawRecoveryCode).digest('hex');
+      await supabaseAdmin.from('recovery_codes').insert({ user_id: user.id, code_hash: recoveryHash });
+
+      // 3. Generate session for the newly created user
+      const { data: sessData, error: sessError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'signup',
+        email: internalEmail,
+        password: password
+      });
+
+      // For simplicity in this proxy, we'll just sign them in or return the user.
+      // Official Supabase way to get a session for a user you just created is signInWithPassword.
+      const { data: loginData, error: loginError } = await supabaseAdmin.auth.signInWithPassword({
+        email: internalEmail,
+        password: password
+      });
+
+      if (loginError) {
+        return res.status(200).json({
+          success: true,
+          user: { id: user.id, username: clean, gems: 0, inventory: {} },
+          recoveryCode: rawRecoveryCode,
+          message: 'Account created. Please log in.'
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        user: {
+          id: user.id,
+          username: clean,
+          gems: 0,
+          inventory: {}
+        },
+        session: loginData.session,
+        recoveryCode: rawRecoveryCode
+      });
+    }
+
+    // Fallback Legacy Local Path (if Supabase not configured)
+    if (!process.env.AUTH_HMAC_SECRET) {
+      return res.status(500).json({ error: 'Server configuration error: AUTH_HMAC_SECRET is missing.' });
+    }
+
     const lower = clean.toLowerCase();
-    const existing = Object.values(accountsCache).find(
-      (a) => a.username.toLowerCase() === lower
-    );
+    const existing = Object.values(accountsCache).find((a) => a.username.toLowerCase() === lower);
     if (existing) {
       return res.status(409).json({ error: 'Username is already taken.' });
     }
@@ -595,8 +390,6 @@ const handleRegisterPlayer = (req: Request, res: Response) => {
     const internalId = deriveHmacIdentifier(clean);
     const userId = 'u_' + internalId.substring(0, 16);
     const internalEmail = `user_${internalId}@growpixel.internal`;
-
-    // Generate cryptographically secure one-time recovery code
     const rawRecoveryCode = crypto.randomBytes(16).toString('hex');
     const recoveryHash = crypto.createHash('sha256').update(rawRecoveryCode).digest('hex');
 
@@ -630,30 +423,55 @@ const handleRegisterPlayer = (req: Request, res: Response) => {
         refresh_token: refreshToken,
         token_type: 'bearer',
         expires_in: 3600,
-        user: {
-          id: userId,
-          email: internalEmail
-        }
+        user: { id: userId, email: internalEmail }
       },
       recoveryCode: rawRecoveryCode
     });
   } catch (err: any) {
+    console.error('Registration error:', err);
     return res.status(500).json({ error: err.message || 'Registration failed.' });
   }
 };
 
 // Unified Login Handler
-const handleLoginPlayer = (req: Request, res: Response) => {
+const handleLoginPlayer = async (req: Request, res: Response) => {
   try {
+    const { username, password } = req.body;
+    const clean = (username || '').trim().toLowerCase();
+
+    if (supabaseAdmin) {
+      // Authoritative Supabase Auth Path
+      const internalEmail = `${clean}@growpixel.internal`;
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+        email: internalEmail,
+        password: password
+      });
+
+      if (authError || !authData.user) {
+        return res.status(401).json({ error: 'Invalid username or password.' });
+      }
+
+      // Load authoritative player economy data
+      const playerData = await loadPlayerData(authData.user.id).catch(() => ({ gems: 0, inventory: {} }));
+
+      return res.status(200).json({
+        success: true,
+        user: {
+          id: authData.user.id,
+          username: authData.user.user_metadata?.username || username,
+          gems: playerData.gems,
+          inventory: playerData.inventory
+        },
+        session: authData.session
+      });
+    }
+
+    // Fallback Legacy Local Path
     if (!process.env.AUTH_HMAC_SECRET) {
       return res.status(500).json({ error: 'Server configuration error: AUTH_HMAC_SECRET is missing.' });
     }
 
-    const { username, password } = req.body;
-    const clean = (username || '').trim().toLowerCase();
     const acc = accountsCache[clean];
-
-    // Generic error to prevent username enumeration
     if (!acc) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
@@ -665,7 +483,6 @@ const handleLoginPlayer = (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    // Seamlessly upgrade legacy password hash to secure hash upon successful login
     if (acc.passHash === legacyHash) {
       acc.passHash = secureHash;
     }
@@ -697,12 +514,13 @@ const handleLoginPlayer = (req: Request, res: Response) => {
       }
     });
   } catch (err: any) {
+    console.error('Login error:', err);
     return res.status(500).json({ error: err.message || 'Login failed.' });
   }
 };
 
 // Unified Recovery Handler
-const handleRecoverPlayer = (req: Request, res: Response) => {
+const handleRecoverPlayer = async (req: Request, res: Response) => {
   try {
     const { recoveryCode, newPassword } = req.body;
     if (!recoveryCode || !newPassword || newPassword.length < 8) {
@@ -711,7 +529,42 @@ const handleRecoverPlayer = (req: Request, res: Response) => {
 
     const codeHash = crypto.createHash('sha256').update(recoveryCode.trim()).digest('hex');
 
-    // Find account with unredeemed matching recovery code hash
+    if (supabaseAdmin) {
+      // Authoritative Supabase Path
+      const { data: recCode, error: recError } = await supabaseAdmin
+        .from('recovery_codes')
+        .select('user_id')
+        .eq('code_hash', codeHash)
+        .is('redeemed_at', null)
+        .maybeSingle();
+
+      if (recError || !recCode) {
+        return res.status(400).json({ error: 'Invalid or already redeemed recovery code.' });
+      }
+
+      // 1. Update user password in Supabase Auth
+      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(recCode.user_id, {
+        password: newPassword
+      });
+
+      if (authError) {
+        return res.status(400).json({ error: authError.message });
+      }
+
+      // 2. Mark code as redeemed
+      await supabaseAdmin
+        .from('recovery_codes')
+        .update({ redeemed_at: new Date().toISOString() })
+        .eq('user_id', recCode.user_id)
+        .eq('code_hash', codeHash);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Password successfully reset using recovery code.'
+      });
+    }
+
+    // Fallback Legacy Local Path
     const acc = Object.values(accountsCache).find(
       (a) => a.recoveryHash === codeHash && !a.recoveryRedeemedAt
     );
@@ -720,7 +573,6 @@ const handleRecoverPlayer = (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid or already redeemed recovery code.' });
     }
 
-    // Invalidate recovery code atomically upon redemption
     acc.recoveryRedeemedAt = Date.now();
     acc.passHash = hashPasswordSecure(newPassword);
     saveAccounts(accountsCache);
@@ -730,6 +582,7 @@ const handleRecoverPlayer = (req: Request, res: Response) => {
       message: 'Password successfully reset using recovery code.'
     });
   } catch (err: any) {
+    console.error('Recovery error:', err);
     return res.status(500).json({ error: err.message || 'Recovery failed.' });
   }
 };
@@ -743,83 +596,155 @@ app.post('/functions/v1/recover-player', handleRecoverPlayer);
 app.post('/api/auth/register', handleRegisterPlayer);
 app.post('/api/auth/login', handleLoginPlayer);
 
-app.post('/api/store/buy', (req: Request, res: Response) => {
-  const { username, itemId, cost, count } = req.body;
-  const clean = (username || '').trim().toLowerCase();
-  const acc = accountsCache[clean];
-  if (!acc) return res.status(404).json({ error: 'User not found' });
-  const price = Math.max(0, Number(cost) || 0);
-  const qty = Math.max(1, Number(count) || 1);
-  if (acc.gems < price) {
-    return res.status(400).json({ error: 'Not enough gems!' });
-  }
+const STORE_CATALOGUE: Record<string, number> = {
+  small_lock: 10,
+  medium_lock: 50,
+  big_lock: 200,
+  world_lock: 500,
+  dirt: 1,
+  stone: 2,
+  wood: 5,
+  seedPot: 5
+};
 
-  acc.gems -= price;
-  acc.inventory[itemId] = (acc.inventory[itemId] || 0) + qty;
-  saveAccounts(accountsCache);
-
-  res.json({
-    success: true,
-    gems: acc.gems,
-    inventory: acc.inventory
-  });
-});
-
-app.post('/api/account/add-gems', (req: Request, res: Response) => {
-  const { username, gems } = req.body;
-  const clean = (username || '').trim().toLowerCase();
-  const acc = accountsCache[clean];
-  if (!acc) return res.status(404).json({ error: 'User not found' });
-  const delta = Math.max(0, Math.min(100, Number(gems) || 0));
-  acc.gems += delta;
-  saveAccounts(accountsCache);
-  res.json({ success: true, gems: acc.gems });
-});
-
-// --- Auction API Endpoints ---
-app.get('/api/auctions', (_req: Request, res: Response) => {
-  res.json({ auctions: Object.values(auctionsCache) });
-});
-
-app.post('/api/auction/create', (req: Request, res: Response) => {
+app.post('/api/store/buy', async (req: Request, res: Response) => {
   try {
-    const { username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes } = req.body;
-    const auction = createAuctionHandler(username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes);
-    res.json({ success: true, auction });
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body.token || '');
+
+    let userId: string;
+    let username: string;
+
+    if (token) {
+      const verified = await verifyPlayerToken(token);
+      if (!verified) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid or expired session token.' });
+      }
+      userId = verified.userId;
+      username = verified.username;
+    } else {
+      const cleanUser = (req.body.username || '').trim();
+      if (!cleanUser) {
+        return res.status(401).json({ error: 'Unauthorized: Session token required.' });
+      }
+      if (supabaseAdmin) {
+        return res.status(401).json({ error: 'Unauthorized: Bearer session token is required.' });
+      }
+      const acc = Object.values(accountsCache).find(a => a.username.toLowerCase() === cleanUser.toLowerCase());
+      if (!acc) return res.status(404).json({ error: 'User not found.' });
+      userId = acc.id;
+      username = acc.username;
+    }
+
+    const { itemId, count, requestId } = req.body;
+    const cleanItem = (itemId || '').trim();
+    const qty = Math.max(1, Math.floor(Number(count) || 1));
+
+    // Validate item against authoritative store catalogue (do not trust client price)
+    const unitPrice = STORE_CATALOGUE[cleanItem];
+    if (unitPrice === undefined) {
+      return res.status(400).json({ error: `Item '${cleanItem}' is not available in store catalogue.` });
+    }
+
+    const totalPrice = unitPrice * qty;
+
+    // Stable request identifier for idempotency
+    const clientReqId = (requestId || req.body.idempotencyKey || '').trim();
+    const idempotencyKey = clientReqId
+      ? `store_buy_${userId}_${cleanItem}_${clientReqId}`
+      : `store_buy_${userId}_${cleanItem}_qty${qty}`;
+
+    const updated = await updatePlayerEconomy(userId, -totalPrice, { [cleanItem]: qty }, idempotencyKey);
+
+    // Sync active player if online
+    for (const room of activeRooms.values()) {
+      const p = room.players.get(userId);
+      if (p) {
+        p.gems = updated.gems;
+        p.inventory = updated.inventory;
+        if (p.ws.readyState === WebSocket.OPEN) {
+          p.ws.send(JSON.stringify({
+            type: 'inventory:sync',
+            inventory: p.inventory,
+            gems: p.gems
+          }));
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      gems: updated.gems,
+      inventory: updated.inventory
+    });
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to create auction.' });
+    return res.status(400).json({ error: err.message || 'Store purchase failed.' });
   }
 });
 
-app.post('/api/auction/bid', (req: Request, res: Response) => {
+app.post('/api/account/add-gems', async (req: Request, res: Response) => {
   try {
-    const { username, auctionId, bidAmount } = req.body;
-    const auction = placeBidHandler(username, auctionId, bidAmount);
-    res.json({ success: true, auction });
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body.token || '');
+    const { username, gems, requestId } = req.body;
+    const delta = Math.max(0, Math.min(1000, Math.floor(Number(gems) || 0)));
+
+    let targetUserId: string;
+
+    if (token) {
+      const verified = await verifyPlayerToken(token);
+      if (!verified) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid session token.' });
+      }
+      targetUserId = verified.userId;
+    } else {
+      const clean = (username || '').trim();
+      if (!clean) {
+        return res.status(400).json({ error: 'Username or valid session token required.' });
+      }
+      if (supabaseAdmin) {
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('id')
+          .ilike('username', clean)
+          .maybeSingle();
+        if (!profile) return res.status(404).json({ error: 'User profile not found in Supabase.' });
+        targetUserId = profile.id;
+      } else {
+        const acc = Object.values(accountsCache).find(a => a.username.toLowerCase() === clean.toLowerCase());
+        if (!acc) return res.status(404).json({ error: 'User not found.' });
+        targetUserId = acc.id;
+      }
+    }
+
+    const clientReqId = (requestId || req.body.idempotencyKey || '').trim();
+    const idempotencyKey = clientReqId
+      ? `add_gems_${targetUserId}_${clientReqId}`
+      : `add_gems_${targetUserId}_delta${delta}`;
+
+    const updated = await updatePlayerEconomy(targetUserId, delta, {}, idempotencyKey);
+
+    for (const room of activeRooms.values()) {
+      const p = room.players.get(targetUserId);
+      if (p) {
+        p.gems = updated.gems;
+        p.inventory = updated.inventory;
+        if (p.ws.readyState === WebSocket.OPEN) {
+          p.ws.send(JSON.stringify({
+            type: 'inventory:sync',
+            inventory: p.inventory,
+            gems: p.gems
+          }));
+        }
+      }
+    }
+
+    return res.json({ success: true, gems: updated.gems });
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to place bid.' });
+    return res.status(400).json({ error: err.message || 'Failed to add gems.' });
   }
 });
 
-app.post('/api/auction/cancel', (req: Request, res: Response) => {
-  try {
-    const { username, auctionId } = req.body;
-    const auction = cancelAuctionHandler(username, auctionId);
-    res.json({ success: true, auction, message: 'Auction successfully cancelled. Bids refunded and item returned to seller.' });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to cancel auction.' });
-  }
-});
-
-app.post('/api/auction/buynow', (req: Request, res: Response) => {
-  try {
-    const { username, auctionId } = req.body;
-    const auction = buyNowAuctionHandler(username, auctionId);
-    res.json({ success: true, auction });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Buy Now purchase failed.' });
-  }
-});
 
 // Check if world exists and get overview
 app.get('/api/world/:name', (req: Request, res: Response) => {
@@ -908,6 +833,8 @@ interface ActivePlayer {
   vy: number;
   face: number;
   pose: string;
+  gems: number;
+  inventory: Record<string, number>;
   ws: WebSocket;
 }
 
@@ -1217,6 +1144,19 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const spawnX = 8 * 52;
         const spawnY = 25 * 52 - 78;
 
+        let playerData: PlayerEconomyState;
+        try {
+          playerData = await loadPlayerData(playerId);
+        } catch (err: any) {
+          console.error(`Failed to load authoritative player data for user ${playerId} (${username}):`, err);
+          ws.send(JSON.stringify({
+            type: 'auth:error',
+            error: 'Failed to load player data: ' + (err.message || 'Database error')
+          }));
+          ws.close(4002, 'Failed to load player data');
+          return;
+        }
+
         const activePlayer: ActivePlayer = {
           id: playerId,
           username,
@@ -1226,6 +1166,8 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           vy: 0,
           face: 1,
           pose: 'idle',
+          gems: playerData.gems,
+          inventory: playerData.inventory,
           ws
         };
 
@@ -1273,8 +1215,14 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           trees: currentRoom.trees,
           drops: currentRoom.drops,
           worldOwner: currentRoom.worldOwner,
-          players: otherPlayers,
-          auctions: Object.values(auctionsCache)
+          players: otherPlayers
+        }));
+
+        // Authoritatively sync inventory & gems to player
+        ws.send(JSON.stringify({
+          type: 'inventory:sync',
+          inventory: activePlayer.inventory,
+          gems: activePlayer.gems
         }));
         return;
       }
@@ -1367,6 +1315,14 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           return;
         }
 
+        const player = currentRoom.players.get(playerId);
+        if (!player) return;
+
+        if ((player.inventory[blockId] || 0) <= 0) {
+          ws.send(JSON.stringify({ type: 'notify', text: `You do not have any ${blockId} to place!` }));
+          return;
+        }
+
         // Handle placing locks
         if (['small_lock', 'medium_lock', 'big_lock', 'world_lock'].includes(blockId)) {
           // 1. If placing world lock, check if world already has one
@@ -1412,16 +1368,27 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           currentRoom.locks.push(lock);
         }
 
-        // Deduct from player inventory
-        const acc = accountsCache[username.toLowerCase()];
-        if (acc) {
-          if ((acc.inventory[blockId] || 0) <= 0) return;
-          acc.inventory[blockId]--;
-          saveAccounts(accountsCache);
+        // Deduct from player inventory in database atomically
+        const placeIdempotencyKey = `place_${currentRoom.name}_${tx}_${ty}_${Date.now()}`;
+        try {
+          const updated = await updatePlayerEconomy(playerId, 0, { [blockId]: -1 }, placeIdempotencyKey);
+          player.gems = updated.gems;
+          player.inventory = updated.inventory;
+        } catch (err: any) {
+          console.error('Failed to deduct placed block from inventory:', err);
+          ws.send(JSON.stringify({ type: 'notify', text: 'Cannot place block: database deduction failed.' }));
+          return;
         }
 
         currentRoom.tiles[ty][tx] = blockId;
         currentRoom.dirty = true;
+
+        // Authoritatively sync inventory to placing player
+        ws.send(JSON.stringify({
+          type: 'inventory:sync',
+          inventory: player.inventory,
+          gems: player.gems
+        }));
 
         // Broadcast block placed to everyone
         const placeData = JSON.stringify({
@@ -1472,14 +1439,21 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           }
 
           // Return lock immediately to that player's inventory
-          const acc = accountsCache[username.toLowerCase()];
-          if (acc) {
-            acc.inventory[lk.type] = (acc.inventory[lk.type] || 0) + 1;
-            saveAccounts(accountsCache);
+          const reclaimKey = `reclaim_${lk.id}_${Date.now()}`;
+          try {
+            const updated = await updatePlayerEconomy(playerId, 0, { [lk.type]: 1 }, reclaimKey);
+            const p = currentRoom.players.get(playerId);
+            if (p) {
+              p.gems = updated.gems;
+              p.inventory = updated.inventory;
+            }
             ws.send(JSON.stringify({
               type: 'inventory:sync',
-              inventory: acc.inventory
+              inventory: updated.inventory,
+              gems: updated.gems
             }));
+          } catch (err: any) {
+            console.error('Failed to reclaim lock to inventory:', err);
           }
 
           currentRoom.locks.splice(lockIndex, 1);
@@ -1570,37 +1544,62 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       }
 
       if (msg.type === 'drop:pickup') {
-        const { dropId, itemId, count, value } = msg;
-        const acc = accountsCache[username.toLowerCase()];
-        if (acc) {
-          if (itemId === 'gem') {
-            const g = Math.max(1, Number(value) || 1);
-            acc.gems += g;
-          } else if (itemId) {
-            const q = Math.max(1, Number(count) || 1);
-            acc.inventory[itemId] = (acc.inventory[itemId] || 0) + q;
-          }
-          saveAccounts(accountsCache);
+        const { dropId } = msg;
+
+        // 1. Locate requested drop in current world
+        const dropIdx = currentRoom.drops.findIndex(d => d.id === dropId);
+        if (dropIdx === -1) return; // Reject if drop does not exist or already claimed
+
+        const drop = currentRoom.drops[dropIdx];
+
+        // 2. Verify pickup distance (50 pixels)
+        const player = currentRoom.players.get(playerId);
+        if (!player) return;
+        const dist = Math.hypot(player.x - drop.x, player.y - drop.y);
+        if (dist > 50) return; // Reject if outside distance
+
+        // 3. Atomically claim drop from world to prevent duplicate collection
+        currentRoom.drops.splice(dropIdx, 1);
+
+        // 4. Derive reward deltas exclusively from server-side drop record
+        const gemsDelta = drop.itemId === 'gem' ? (drop.value || 1) : 0;
+        const inventoryDelta = drop.itemId !== 'gem' ? { [drop.itemId]: drop.count || 1 } : {};
+        const idempotencyKey = `drop_${currentRoom.name}_${drop.id}`;
+
+        // 5. Persist reward atomically to authoritative Supabase database
+        try {
+          const updated = await updatePlayerEconomy(playerId, gemsDelta, inventoryDelta, idempotencyKey);
+
+          // Update in-memory player state from authoritative DB response
+          player.gems = updated.gems;
+          player.inventory = updated.inventory;
+          currentRoom.dirty = true;
+
+          // Notify collector with synchronized inventory & gems
           ws.send(JSON.stringify({
             type: 'inventory:sync',
-            inventory: acc.inventory,
-            gems: acc.gems
+            inventory: player.inventory,
+            gems: player.gems
           }));
-        }
 
-        if (dropId) {
-          const idx = currentRoom.drops.findIndex(d => d.id === dropId);
-          if (idx >= 0) {
-            currentRoom.drops.splice(idx, 1);
-            currentRoom.dirty = true;
-          }
+          // Broadcast drop removal to all players in the room ONLY AFTER DB commit
           const removeData = JSON.stringify({
             type: 'drop:removed',
-            dropId
+            dropId: drop.id
           });
           for (const p of currentRoom.players.values()) {
             if (p.ws.readyState === WebSocket.OPEN) p.ws.send(removeData);
           }
+        } catch (err: any) {
+          console.error(`Drop collection failed for user ${playerId} on drop ${drop.id}:`, err);
+          // Preserve the drop in the world if transaction fails!
+          if (!currentRoom.drops.some(d => d.id === drop.id)) {
+            currentRoom.drops.push(drop);
+          }
+          ws.send(JSON.stringify({
+            type: 'notify',
+            text: 'Failed to collect item. Database transaction rolled back.'
+          }));
         }
         return;
       }
@@ -1635,53 +1634,6 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         return;
       }
 
-      if (msg.type === 'auction:list:request') {
-        ws.send(JSON.stringify({
-          type: 'auction:list',
-          auctions: Object.values(auctionsCache)
-        }));
-        return;
-      }
-
-      if (msg.type === 'auction:create') {
-        try {
-          const { itemId, itemCount, startingBid, buyNowPrice, durationMinutes } = msg;
-          createAuctionHandler(username, itemId, itemCount, startingBid, buyNowPrice, durationMinutes);
-        } catch (err: any) {
-          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to create auction' }));
-        }
-        return;
-      }
-
-      if (msg.type === 'auction:bid') {
-        try {
-          const { auctionId, bidAmount } = msg;
-          placeBidHandler(username, auctionId, bidAmount);
-        } catch (err: any) {
-          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to place bid' }));
-        }
-        return;
-      }
-
-      if (msg.type === 'auction:cancel') {
-        try {
-          const { auctionId } = msg;
-          cancelAuctionHandler(username, auctionId);
-        } catch (err: any) {
-          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Failed to cancel auction' }));
-        }
-        return;
-      }
-
-      if (msg.type === 'auction:buynow') {
-        try {
-          const { auctionId } = msg;
-          buyNowAuctionHandler(username, auctionId);
-        } catch (err: any) {
-          ws.send(JSON.stringify({ type: 'notify', text: err.message || 'Buy Now purchase failed' }));
-        }
-        return;
-      }
 
     } catch (err) {
       console.error('WebSocket message error:', err);
